@@ -9,6 +9,7 @@ import pygame
 import sys
 import random
 import itertools
+import time
 
 
 class Shape:
@@ -29,9 +30,18 @@ class Shape:
     def _c2p(self, pos):
         return self.base[0] + pos[0]*self.size[0], self.base[1] + pos[1]*self.size[1]
 
+    @staticmethod
+    def _tuple_add(t1, t2):
+        return t1[0] + t2[0], t1[1] + t2[1]
+
 
 class Rect(Shape):
-    pass
+    def _c2r(self):
+        self.rectangles = []
+        for p in self.pos:
+            p = self._c2p(p)
+            self.rectangles.append(pygame.Rect(*p, self.block_size))
+        return self.rectangles
 
 
 class Circle(Shape):
@@ -64,11 +74,19 @@ class Snake(Rect):
     LEFT = (-1, 0)
 
     def __init__(self, **kwargs):
+        self.number = kwargs.pop('wall')
         super().__init__(**kwargs)
-        self.length = 3
-        self.pos = [(2, 0), (1, 0), (0, 0)]
+        self.pos = [(4, 0), (3, 0), (2, 0), (1, 0), (0, 0)]
         self._body_color = (249, 96, 96)
         self._head_color = (5, 156, 75)
+        self.direction = self.RIGHT
+        self.head = self.pos[0]
+        self.all_directions = {
+            pygame.K_LEFT: self.LEFT,
+            pygame.K_RIGHT: self.RIGHT,
+            pygame.K_UP: self.UP,
+            pygame.K_DOWN: self.DOWN,
+        }
 
     def block(self, pos, head=False):
         rect = (*pos, *self.size)
@@ -83,6 +101,41 @@ class Snake(Rect):
     @property
     def occupation(self):
         return set(self.pos)
+
+    @property
+    def inversion(self):
+        return -self.direction[0], -self.direction[1]
+
+    def move(self):
+        self.pos.insert(0, self._tuple_add(self.head, self.direction))
+        self.pos.pop(-1)
+        self.head = self.pos[0]
+
+    def turn(self, event):
+        try:
+            next_direction = self.all_directions[event.key]
+        except KeyError:  # Other keys are pressed
+            return
+        if next_direction == self.inversion:
+            return
+        else:
+            self.direction = next_direction
+
+    @property
+    def death(self):
+        body = self.pos[1:]
+        if self.head in body:
+            return True
+        if self.head[0] < 0 or self.head[0] > self.number - 1 or self.head[1] < 0 or self.head[1] > self.number - 1:
+            return True
+        return False
+
+    def eat(self, food):
+        if self.head == food:
+            self.pos.append(self.pos[-1])
+            return True
+        else:
+            return False
 
 
 class Food(Circle):
@@ -100,13 +153,14 @@ class Food(Circle):
 
 class Game:
 
-    def __init__(self, expansion=1):
+    def __init__(self, speed=0.1, expansion=2):
         pygame.init()
+        self.speed = speed
         self.background_size = int(320 * expansion)
         self.frame_size = int(300 * expansion)
         self.block_size = int(15 * expansion)
-        self.number = (self.background_size - self.frame_size) // self.block_size
-        self.grid = set(itertools.product(range(5), range(5)))
+        self.number = self.frame_size // self.block_size
+        self.grid = set(itertools.product(range(self.number), range(self.number)))
         self.background_color = (183, 222, 232)
 
         self.background_shape = (self.background_size, self.background_size)
@@ -126,33 +180,59 @@ class Game:
             block_size=self.frame_size,
             color=self.frame_color
         )
-        self.frame.draw()
 
-        self.snake = Snake(background=self.background, base=self.frame_base, block_size=self.block_size)
-        self.snake.draw()
+        self.snake = Snake(
+            background=self.background,
+            base=self.frame_base,
+            block_size=self.block_size,
+            wall=self.number
+        )
 
-        self.food = Food(background=self.background, base=self.frame_base, block_size=self.block_size)
+        self.food = Food(
+            background=self.background,
+            base=self.frame_base,
+            block_size=self.block_size
+        )
+
         self.food.replenish(self.allowed)
+        self._draw()
+
+    def _draw(self):
+        self.frame.draw()
+        self.snake.draw()
         self.food.draw()
 
     @property
     def allowed(self):
         return list(self.grid - self.snake.occupation)
 
+    def control(self): pass
+
     def run(self):
         # Event loop
         while 1:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    return
+            if pygame.event.peek(pygame.QUIT):
+                return
+            elif pygame.event.peek(pygame.KEYDOWN):
+                events = pygame.event.get(pygame.KEYDOWN)
+                current_event = events[-1]
+                self.snake.turn(current_event)
             self.screen.blit(self.background, (0, 0))
             pygame.display.flip()
+            self.snake.move()
+            if self.snake.eat(self.food.pos[0]):
+                self.food.replenish(self.allowed)
+            self._draw()
+            if self.snake.death:
+                return
+            time.sleep(self.speed)
 
     def __getattr__(self, name):
         return getattr(self.snake, name)
 
 
-g = Game(3)
+g = Game(speed=0.1)
 g.run()
 pygame.quit()
 sys.exit(0)
+
