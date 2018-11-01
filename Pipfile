@@ -1,12 +1,14 @@
 [[source]]
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-verify_ssl = true
 name = "pypi"
-
-[requires]
-python_version = "3.7"
+verify_ssl = true
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
 [packages]
+tensorflow = "*"
 pygame = "*"
+numpy = "*"
 
 [dev-packages]
+
+[requires]
+python_version = "3.6"
