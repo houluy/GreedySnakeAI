@@ -10,9 +10,11 @@ import sys
 import random
 import itertools
 import time
+import numpy as np
 
 
 class Shape:
+
     def __init__(self, background, base, block_size, shape=pygame.draw.rect):
         self.background = background
         self.base = base
@@ -22,7 +24,11 @@ class Shape:
         self.shape = shape
 
     def draw(self):
-        for p in self.pos:
+        if not isinstance(self.pos, list):
+            pos = [self.pos]
+        else:
+            pos = self.pos
+        for p in pos:
             p = self._c2p(p)
             rect = (*p, *self.size)
             self.shape(self.background, self.color, rect, 0)
@@ -36,20 +42,20 @@ class Shape:
 
 
 class Rect(Shape):
-    def _c2r(self):
-        self.rectangles = []
-        for p in self.pos:
-            p = self._c2p(p)
-            self.rectangles.append(pygame.Rect(*p, self.block_size))
-        return self.rectangles
+    pass
 
 
 class Circle(Shape):
+
     def __init__(self, **kwargs):
         super().__init__(shape=pygame.draw.circle, **kwargs)
 
     def draw(self):
-        for p in self.pos:
+        if not isinstance(self.pos, list):
+            pos = [self.pos]
+        else:
+            pos = self.pos
+        for p in pos:
             p = self._c2p(p)
             self.shape(self.background, self.color, p, self.block_size // 2)
 
@@ -59,14 +65,14 @@ class Circle(Shape):
 
 
 class Frame(Rect):
+
     def __init__(self, **kwargs):
         self.color = kwargs.pop('color')
         super().__init__(**kwargs)
-        self.pos = [(0, 0)]
+        self.pos = (0, 0)
 
 
 class Snake(Rect):
-    ' Direction: UP: (0, -1) DOWN: (0, 1) RIGHT: (1, 0) LEFT: (-1, 0)'
 
     UP = (0, -1)
     DOWN = (0, 1)
@@ -139,6 +145,7 @@ class Snake(Rect):
 
 
 class Food(Circle):
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.color = (52, 115, 243)
@@ -148,7 +155,7 @@ class Food(Circle):
         return random.choice(allowed)
 
     def replenish(self, allowed):
-        self.pos = [self._gen(allowed)]
+        self.pos = self._gen(allowed)
 
 
 class Game:
@@ -167,6 +174,17 @@ class Game:
         self.frame_shape = (self.frame_size, self.frame_size)
         self.frame_base = tuple((self.background_size - self.frame_size) // 2 for _ in range(2))
         self.frame_color = (219, 238, 244)
+
+        self.value = {
+            'head': 1,
+            'body': -1,
+            'food': 2,
+            'wall': -2
+        }
+
+        self._state = np.zeros((self.number + 1, self.number + 1))
+        self._state[[0, self.number], :] = self.value['wall']
+        self._state[:, [0, self.number]] = self.value['wall']
 
         self.screen = pygame.display.set_mode(self.background_shape)
         pygame.display.set_caption('Greedy Snake AI')
@@ -197,6 +215,8 @@ class Game:
         self.food.replenish(self.allowed)
         self._draw()
 
+        self.score = 0
+
     def _draw(self):
         self.frame.draw()
         self.snake.draw()
@@ -209,7 +229,6 @@ class Game:
     def control(self): pass
 
     def run(self):
-        # Event loop
         while 1:
             if pygame.event.peek(pygame.QUIT):
                 return
@@ -220,18 +239,33 @@ class Game:
             self.screen.blit(self.background, (0, 0))
             pygame.display.flip()
             self.snake.move()
-            if self.snake.eat(self.food.pos[0]):
+            if self.eat:
+                self.score += 1
                 self.food.replenish(self.allowed)
             self._draw()
-            if self.snake.death:
+            if self.death:
                 return
             time.sleep(self.speed)
 
-    def __getattr__(self, name):
-        return getattr(self.snake, name)
+    @property
+    def state(self):
+        self._state[1:self.number - 1, 1:self.number - 1] = 0
+        self._state[self.food.pos[1] + 1, self.food.pos[0] + 1] = self.value['food']
+        for body in self.snake.pos:
+            self._state[body[1] + 1, body[0] + 1] = self.value['body']
+        self._state[self.snake.head[1] + 1, self.snake.head[0] + 1] = self.value['head']
+        return self._state
+
+    @property
+    def eat(self):
+        return self.snake.eat(self.food.pos[0])
+
+    @property
+    def death(self):
+        return self.snake.death
 
 
-g = Game(speed=0.1)
+g = Game(speed=1)
 g.run()
 pygame.quit()
 sys.exit(0)
