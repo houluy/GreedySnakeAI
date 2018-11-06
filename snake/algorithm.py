@@ -1,18 +1,19 @@
 import tensorflow as tf
 from collections import namedtuple
 
-ConvLayers = namedtuple('ConvLayer',
-    ('name', 'layer', 'kernel', 'strides', 'number', 'channels', 'stddev', 'bias')
-)
-PoolLayers = namedtuple('PoolLayer', ('name', 'layer', 'ksize', 'strides'))
-# Local Response Normalizations
-# LRNLayers = namedtuple('LRNLayer', ('layer', 'type', 'radius', 'bias', 'alpha', 'beta'))
-FCLayers = namedtuple('FCLayer',
-    ('name', 'layer', 'shape', 'stddev', 'bias', 'regularizer', 'regularizer_weight', 'activation')
-)
-
 
 class QApproximation:
+
+    ConvLayers = namedtuple('ConvLayer',
+        ('name', 'layer', 'kernel', 'strides', 'number', 'channels', 'stddev', 'bias')
+    )
+    PoolLayers = namedtuple('PoolLayer', ('name', 'layer', 'ksize', 'strides'))
+    # Local Response Normalizations
+    # LRNLayers = namedtuple('LRNLayer', ('layer', 'type', 'radius', 'bias', 'alpha', 'beta'))
+    FCLayers = namedtuple('FCLayer',
+        ('name', 'layer', 'shape', 'stddev', 'bias', 'regularizer', 'regularizer_weight', 'activation')
+    )
+
     def __init__(self, ipt_size, ipt_channel=1):
         self.ipt_size = ipt_size
         self.ipt_shape = (self.ipt_size, self.ipt_size)
@@ -34,7 +35,7 @@ class QApproximation:
         self.networks = {}
         for name in layer_name:
             self.networks[name] = self.build_all([
-                ConvLayers(
+                self.ConvLayers(
                     name=name,
                     layer=1,
                     kernel=(3, 3),
@@ -44,13 +45,13 @@ class QApproximation:
                     stddev=stddev,
                     bias=biases
                 ),
-                PoolLayers(
+                self.PoolLayers(
                     name=name,
                     layer=2,
                     ksize=k_size,
                     strides=p_strides,
                 ),
-                ConvLayers(
+                self.ConvLayers(
                     name=name,
                     layer=3,
                     kernel=(3, 3),
@@ -60,13 +61,13 @@ class QApproximation:
                     stddev=stddev,
                     bias=biases
                 ),
-                PoolLayers(
+                self.PoolLayers(
                     name=name,
                     layer=4,
                     ksize=k_size,
                     strides=p_strides,
                 ),
-                FCLayers(
+                self.FCLayers(
                     name=name,
                     layer=5,
                     shape=128,
@@ -76,7 +77,7 @@ class QApproximation:
                     regularizer_weight=self.reg_lambda,
                     activation=tf.nn.relu,
                 ),
-                FCLayers(
+                self.FCLayers(
                     name=name,
                     layer=6,
                     shape=4,
@@ -87,6 +88,7 @@ class QApproximation:
                     activation=None,
                 )
             ])
+        self._action = 0
 
     @staticmethod
     def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):
@@ -149,10 +151,6 @@ class QApproximation:
             raise AttributeError()
 
     @staticmethod
-    def observe(game):
-        return game.state
-
-    @staticmethod
     def reward(game):
         if game.eat:
             return 10
@@ -163,6 +161,31 @@ class QApproximation:
 
     def train(self, sess): pass
 
+
+class DQN:
+
+    exp = namedtuple('exp', ('state', 'action', 'reward', 'next_state'))
+
+    def __init__(self, ipt_size):
+        self.q = QApproximation(ipt_size)
+        self.experience_size = 1000
+        self.experience_pool = []
+
+    def gain_experiences(self, game):
+        for step in self.experience_size:
+            state = self.observe(game)
+            pass
+
+    def experience_replay(self):
+        pass
+
+    @property
+    def action(self):
+        return self._action
+
+    @staticmethod
+    def observe(game):
+        return game.state
 
 if __name__ == '__main__':
     qa = QApproximation(20)

@@ -86,13 +86,14 @@ class Snake(Rect):
         self._body_color = (249, 96, 96)
         self._head_color = (5, 156, 75)
         self.direction = self.RIGHT
-        self.head = self.pos[0]
-        self.all_directions = {
-            pygame.K_LEFT: self.LEFT,
-            pygame.K_RIGHT: self.RIGHT,
-            pygame.K_UP: self.UP,
-            pygame.K_DOWN: self.DOWN,
-        }
+        self.head = self[0]
+        self.all_directions = [self.LEFT, self.RIGHT, self.UP, self.DOWN]
+        self.key_to_direction = dict(zip(
+            [pygame.K_LEFT, pygame.K_RIGHT, pygame.K_UP, pygame.K_DOWN], self.all_directions)
+        )
+
+    def __getitem__(self, item):
+        return self.pos[item]
 
     def block(self, pos, head=False):
         rect = (*pos, *self.size)
@@ -100,13 +101,13 @@ class Snake(Rect):
         pygame.draw.rect(self.background, color, rect, 0)
 
     def draw(self):
-        for p in self.pos:
-            head = True if p == self.pos[0] else False
+        for p in self:
+            head = True if p == self[0] else False
             self.block(self._c2p(p), head=head)
 
     @property
     def occupation(self):
-        return set(self.pos)
+        return set(self)
 
     @property
     def inversion(self):
@@ -115,11 +116,11 @@ class Snake(Rect):
     def move(self):
         self.pos.insert(0, self._tuple_add(self.head, self.direction))
         self.pos.pop(-1)
-        self.head = self.pos[0]
+        self.head = self[0]
 
     def turn(self, event):
         try:
-            next_direction = self.all_directions[event.key]
+            next_direction = self.key_to_direction[event.key]
         except KeyError:  # Other keys are pressed
             return
         if next_direction == self.inversion:
@@ -129,7 +130,7 @@ class Snake(Rect):
 
     @property
     def death(self):
-        body = self.pos[1:]
+        body = self[1:]
         if self.head in body:
             return True
         if self.head[0] < 0 or self.head[0] > self.number - 1 or self.head[1] < 0 or self.head[1] > self.number - 1:
@@ -138,10 +139,17 @@ class Snake(Rect):
 
     def eat(self, food):
         if self.head == food:
-            self.pos.append(self.pos[-1])
+            self.pos.append(self[-1])
             return True
         else:
             return False
+
+    @property
+    def available_directions(self):
+        return [ind
+                for ind, action in enumerate(self.all_directions)
+                if not self._tuple_add(self.head, action) == self[1]
+        ]
 
 
 class Food(Circle):
@@ -251,7 +259,7 @@ class Game:
     def state(self):
         self._state[1:self.number - 1, 1:self.number - 1] = 0
         self._state[self.food.pos[1] + 1, self.food.pos[0] + 1] = self.value['food']
-        for body in self.snake.pos:
+        for body in self.snake:
             self._state[body[1] + 1, body[0] + 1] = self.value['body']
         self._state[self.snake.head[1] + 1, self.snake.head[0] + 1] = self.value['head']
         return self._state
@@ -264,9 +272,14 @@ class Game:
     def death(self):
         return self.snake.death
 
+    @staticmethod
+    def action(neural):
+        return neural.action
 
-g = Game(speed=1)
-g.run()
-pygame.quit()
-sys.exit(0)
+
+if __name__ == '__main__':
+    g = Game(speed=1)
+    g.run()
+    pygame.quit()
+    sys.exit(0)
 
