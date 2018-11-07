@@ -8,16 +8,17 @@ class TestGame(unittest.TestCase):
         self.g = Game()
 
     def testAvailableActions(self):
-        all_directions = {(0, 1), (0, -1), (-1, 0), (1, 0)}
+        all_directions = {0, 1, 2, 3}
         test_pos = {
-            (0, 1): [(0, 1), (0, 2)],
-            (0, -1): [(0, 2), (0, 1)],
-            (-1, 0): [(2, 0), (1, 0)],
-            (1, 0): [(1, 0), (2, 0)]
+            0: [(2, 0), (1, 0)],
+            1: [(1, 0), (2, 0)],
+            2: [(0, 2), (0, 1)],
+            3: [(0, 1), (0, 2)]
         }
         for direction, pos in test_pos.items():
-            self.pos = pos
-            self.assertEqual(self.g.snake.available_directions, all_directions - set([direction]))
+            self.g.snake.pos = pos
+            self.g.snake.head = self.g.snake.pos[0]
+            self.assertEqual(self.g.snake.available_directions, list(all_directions - set([direction])))
 
 
 if __name__ == '__main__':

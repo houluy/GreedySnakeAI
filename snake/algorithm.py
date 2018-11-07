@@ -1,5 +1,6 @@
 import tensorflow as tf
 from collections import namedtuple
+import numpy as np
 
 
 class QApproximation:
@@ -14,11 +15,11 @@ class QApproximation:
         ('name', 'layer', 'shape', 'stddev', 'bias', 'regularizer', 'regularizer_weight', 'activation')
     )
 
-    def __init__(self, ipt_size, ipt_channel=1):
+    def __init__(self, ipt_size, out_size, ipt_channel=1):
         self.ipt_size = ipt_size
         self.ipt_shape = (self.ipt_size, self.ipt_size)
         self.ipt_channel = ipt_channel
-        self.opt_size = 4
+        self.opt_size = out_size
         self.ipt = tf.placeholder(tf.float32, shape=(None, *self.ipt_shape, self.ipt_channel))
         self.hyper_params = {
             'alpha': 0.3
@@ -166,15 +167,26 @@ class DQN:
 
     exp = namedtuple('exp', ('state', 'action', 'reward', 'next_state'))
 
-    def __init__(self, ipt_size):
-        self.q = QApproximation(ipt_size)
+    def __init__(self, ipt_size, out_size):
+        self.q = QApproximation(ipt_size, out_size)
         self.experience_size = 1000
         self.experience_pool = []
 
     def gain_experiences(self, game):
-        for step in self.experience_size:
+        for _ in self.experience_size:
             state = self.observe(game)
-            pass
+            action_index = np.random.choice(game.actions)
+            game.interact(action_index)
+            reward = self.q.reward(game)
+            if reward == -10:
+                game.reset()
+            next_state = self.observe(game)
+            self.experience_pool.append(self.exp(
+                state=state,
+                action=action_index,
+                reward=reward,
+                next_state=next_state,
+            ))
 
     def experience_replay(self):
         pass
@@ -187,6 +199,6 @@ class DQN:
     def observe(game):
         return game.state
 
+
 if __name__ == '__main__':
-    qa = QApproximation(20)
-    print(qa.networks)
+    dqn = DQN(ipt_size=20, out_size=4)

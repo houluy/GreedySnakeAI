@@ -1,7 +1,5 @@
-from .algorithm import QApproximation
+from .algorithm import DQN
 from .snake import Game
 
-__all__ = [
-    QApproximation,
-    Game,
-]
+g = Game()
+dqn = DQN()

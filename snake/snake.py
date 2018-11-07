@@ -11,30 +11,28 @@ import random
 import itertools
 import time
 import numpy as np
+import collections.abc
 
 
 class Shape:
 
-    def __init__(self, background, base, block_size, shape=pygame.draw.rect):
-        self.background = background
-        self.base = base
+    def __init__(self, block_size, shape=pygame.draw.rect):
         self.pos = []
-        self.block_size = block_size
-        self.size = (self.block_size, self.block_size)
         self.shape = shape
+        self.block_size = block_size
 
-    def draw(self):
+    def draw(self, window):
         if not isinstance(self.pos, list):
             pos = [self.pos]
         else:
             pos = self.pos
         for p in pos:
-            p = self._c2p(p)
-            rect = (*p, *self.size)
-            self.shape(self.background, self.color, rect, 0)
+            p = self._c2p(p, window)
+            rect = (*p, self.block_size, self.block_size)
+            self.shape(window.background, self.color, rect, 0)
 
-    def _c2p(self, pos):
-        return self.base[0] + pos[0]*self.size[0], self.base[1] + pos[1]*self.size[1]
+    def _c2p(self, pos, window):
+        return window.base[0] + pos[0]*self.block_size, window.base[1] + pos[1]*self.block_size
 
     @staticmethod
     def _tuple_add(t1, t2):
@@ -50,17 +48,17 @@ class Circle(Shape):
     def __init__(self, **kwargs):
         super().__init__(shape=pygame.draw.circle, **kwargs)
 
-    def draw(self):
+    def draw(self, window):
         if not isinstance(self.pos, list):
             pos = [self.pos]
         else:
             pos = self.pos
         for p in pos:
-            p = self._c2p(p)
-            self.shape(self.background, self.color, p, self.block_size // 2)
+            p = self._c2p(p, window)
+            self.shape(window.background, self.color, p, self.block_size // 2)
 
-    def _c2p(self, pos):
-        base = super()._c2p(pos)
+    def _c2p(self, pos, window):
+        base = super()._c2p(pos, window)
         return base[0] + self.block_size // 2, base[1] + self.block_size // 2
 
 
@@ -78,32 +76,29 @@ class Snake(Rect):
     DOWN = (0, 1)
     RIGHT = (1, 0)
     LEFT = (-1, 0)
+    INITIAL_POS = [(4, 0), (3, 0), (2, 0), (1, 0), (0, 0)]
 
     def __init__(self, **kwargs):
-        self.number = kwargs.pop('wall')
+        self.number = kwargs.pop('number')
         super().__init__(**kwargs)
-        self.pos = [(4, 0), (3, 0), (2, 0), (1, 0), (0, 0)]
+        self.reset()
         self._body_color = (249, 96, 96)
         self._head_color = (5, 156, 75)
-        self.direction = self.RIGHT
-        self.head = self[0]
         self.all_directions = [self.LEFT, self.RIGHT, self.UP, self.DOWN]
-        self.key_to_direction = dict(zip(
-            [pygame.K_LEFT, pygame.K_RIGHT, pygame.K_UP, pygame.K_DOWN], self.all_directions)
-        )
+        self.action_to_direction = dict(enumerate(self.all_directions))
 
     def __getitem__(self, item):
         return self.pos[item]
 
-    def block(self, pos, head=False):
-        rect = (*pos, *self.size)
+    def block(self, pos, window, head=False):
+        rect = (*pos, self.block_size, self.block_size)
         color = self._head_color if head else self._body_color
-        pygame.draw.rect(self.background, color, rect, 0)
+        pygame.draw.rect(window.background, color, rect, 0)
 
-    def draw(self):
+    def draw(self, window):
         for p in self:
             head = True if p == self[0] else False
-            self.block(self._c2p(p), head=head)
+            self.block(self._c2p(p, window), window, head=head)
 
     @property
     def occupation(self):
@@ -118,11 +113,10 @@ class Snake(Rect):
         self.pos.pop(-1)
         self.head = self[0]
 
-    def turn(self, event):
-        try:
-            next_direction = self.key_to_direction[event.key]
-        except KeyError:  # Other keys are pressed
+    def turn(self, action_index):
+        if action_index is None:
             return
+        next_direction = self.action_to_direction[action_index]
         if next_direction == self.inversion:
             return
         else:
@@ -148,8 +142,13 @@ class Snake(Rect):
     def available_directions(self):
         return [ind
                 for ind, action in enumerate(self.all_directions)
-                if not self._tuple_add(self.head, action) == self[1]
+                if not (self._tuple_add(self.head, action) == self[1])
         ]
+
+    def reset(self):
+        self.pos = self.INITIAL_POS
+        self.head = self[0]
+        self.direction = self.RIGHT
 
 
 class Food(Circle):
@@ -168,21 +167,9 @@ class Food(Circle):
 
 class Game:
 
-    def __init__(self, speed=0.1, expansion=2):
-        pygame.init()
-        self.speed = speed
-        self.background_size = int(320 * expansion)
-        self.frame_size = int(300 * expansion)
-        self.block_size = int(15 * expansion)
-        self.number = self.frame_size // self.block_size
+    def __init__(self, number, block_size):
+        self.number = number
         self.grid = set(itertools.product(range(self.number), range(self.number)))
-        self.background_color = (183, 222, 232)
-
-        self.background_shape = (self.background_size, self.background_size)
-        self.frame_shape = (self.frame_size, self.frame_size)
-        self.frame_base = tuple((self.background_size - self.frame_size) // 2 for _ in range(2))
-        self.frame_color = (219, 238, 244)
-
         self.value = {
             'head': 1,
             'body': -1,
@@ -193,67 +180,24 @@ class Game:
         self._state = np.zeros((self.number + 1, self.number + 1))
         self._state[[0, self.number], :] = self.value['wall']
         self._state[:, [0, self.number]] = self.value['wall']
+        self.block_size = block_size
+        self.snake = Snake(number=self.number, block_size=self.block_size)
 
-        self.screen = pygame.display.set_mode(self.background_shape)
-        pygame.display.set_caption('Greedy Snake AI')
-        self.background = pygame.Surface(self.screen.get_size())
-        self.background = self.background.convert()
-        self.background.fill(self.background_color)
-
-        self.frame = Frame(
-            background=self.background,
-            base=self.frame_base,
-            block_size=self.frame_size,
-            color=self.frame_color
-        )
-
-        self.snake = Snake(
-            background=self.background,
-            base=self.frame_base,
-            block_size=self.block_size,
-            wall=self.number
-        )
-
-        self.food = Food(
-            background=self.background,
-            base=self.frame_base,
-            block_size=self.block_size
-        )
+        self.food = Food(block_size=self.block_size)
 
         self.food.replenish(self.allowed)
-        self._draw()
 
         self.score = 0
-
-    def _draw(self):
-        self.frame.draw()
-        self.snake.draw()
-        self.food.draw()
 
     @property
     def allowed(self):
         return list(self.grid - self.snake.occupation)
 
-    def control(self): pass
+    @property
+    def actions(self):
+        return self.snake.available_directions
 
-    def run(self):
-        while 1:
-            if pygame.event.peek(pygame.QUIT):
-                return
-            elif pygame.event.peek(pygame.KEYDOWN):
-                events = pygame.event.get(pygame.KEYDOWN)
-                current_event = events[-1]
-                self.snake.turn(current_event)
-            self.screen.blit(self.background, (0, 0))
-            pygame.display.flip()
-            self.snake.move()
-            if self.eat:
-                self.score += 1
-                self.food.replenish(self.allowed)
-            self._draw()
-            if self.death:
-                return
-            time.sleep(self.speed)
+    def control(self): pass
 
     @property
     def state(self):
@@ -266,7 +210,7 @@ class Game:
 
     @property
     def eat(self):
-        return self.snake.eat(self.food.pos[0])
+        return self.snake.eat(self.food.pos)
 
     @property
     def death(self):
@@ -276,10 +220,82 @@ class Game:
     def action(neural):
         return neural.action
 
+    def interact(self, action_index):
+        self.snake.turn(action_index)
+        self.snake.move()
+
+    def reset(self):
+        self.snake.reset()
+        self.food.replenish(self.allowed)
+
+    def play(self, engine=None):
+        while True:
+            if engine:
+                engine.draw(self.snake, self.food)
+                action_index = engine.action
+                if action_index is False:
+                    return
+            else:
+                action_index = self.snake.direction
+            self.snake.turn(action_index)
+            self.snake.move()
+            if self.eat:
+                self.score += 1
+                self.food.replenish(self.allowed)
+            if self.death:
+                return
+
+
+class Window:
+    def __init__(self, number, block_size, speed=0.1, expansion=2):
+        pygame.init()
+        self.speed = speed
+        self.number = number
+        self.block_size = int(block_size * expansion)
+        self.frame_size = int(self.block_size*self.number)
+        self.background_size = int(self.frame_size + 20*expansion)
+        self.background_color = (183, 222, 232)
+
+        self.background_shape = (self.background_size, self.background_size)
+        self.frame_shape = (self.frame_size, self.frame_size)
+        self.base = tuple((self.background_size - self.frame_size) // 2 for _ in range(2))
+        self.frame_color = (219, 238, 244)
+
+        self.screen = pygame.display.set_mode(self.background_shape)
+        pygame.display.set_caption('Greedy Snake AI')
+        self.background = pygame.Surface(self.screen.get_size())
+        self.background = self.background.convert()
+        self.background.fill(self.background_color)
+
+        self.frame = Frame(color=self.frame_color, block_size=self.frame_size)
+
+        self.directions = dict(zip([pygame.K_LEFT, pygame.K_RIGHT, pygame.K_UP, pygame.K_DOWN], range(4)))
+
+    def draw(self, *args):
+        self.screen.blit(self.background, (0, 0))
+        pygame.display.flip()
+        self.frame.draw(self)
+        for obj in args:
+            obj.draw(self)
+        time.sleep(self.speed)
+
+    @property
+    def action(self):
+        if pygame.event.peek(pygame.QUIT):
+            return False
+        elif pygame.event.peek(pygame.KEYDOWN):
+            events = pygame.event.get(pygame.KEYDOWN)
+            current_event = events[-1]
+            return self.directions[current_event.key]
+        else:
+            return None
+
 
 if __name__ == '__main__':
-    g = Game(speed=1)
-    g.run()
+    expansion = 1.5
+    block_size = int(15 * expansion)
+    g = Game(number=20, block_size=block_size)
+    window = Window(number=20, block_size=block_size, expansion=expansion, speed=0.5)
+    g.play(engine=window)
     pygame.quit()
     sys.exit(0)
-
