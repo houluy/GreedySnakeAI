@@ -21,9 +21,6 @@ class QApproximation:
         self.ipt_channel = ipt_channel
         self.opt_size = out_size
         self.ipt = tf.placeholder(tf.float32, shape=(None, *self.ipt_shape, self.ipt_channel))
-        self.hyper_params = {
-            'alpha': 0.3
-        }
         self.reg_lambda = 0.03
         self.optimizer = tf.train.AdamOptimizer(self.alpha)
 
@@ -104,7 +101,7 @@ class QApproximation:
 
     def _build_layer(self, ipt_layer, opt_layer):
         with tf.variable_scope(opt_layer.name, reuse=tf.AUTO_REUSE):
-            if isinstance(opt_layer, ConvLayers):
+            if isinstance(opt_layer, self.ConvLayers):
                 weight_shape = [*opt_layer.kernel, opt_layer.channels, opt_layer.number]
                 weights, biases = self.gen_weights(
                     opt_layer.name + str(opt_layer.layer),
@@ -115,9 +112,9 @@ class QApproximation:
                 )
                 clayer = tf.nn.conv2d(ipt_layer, weights, strides=opt_layer.strides, padding='SAME')
                 clayer = tf.nn.relu(tf.nn.bias_add(clayer, biases))
-            elif isinstance(opt_layer, PoolLayers):
+            elif isinstance(opt_layer, self.PoolLayers):
                 clayer = tf.nn.max_pool(ipt_layer, ksize=opt_layer.ksize, strides=opt_layer.strides, padding='SAME')
-            elif isinstance(opt_layer, FCLayers):
+            elif isinstance(opt_layer, self.FCLayers):
                 ipt_layer = tf.layers.Flatten()(ipt_layer)
                 ipt_size = ipt_layer.get_shape()[-1]
                 weight_shape = [ipt_size, opt_layer.shape]
@@ -145,14 +142,8 @@ class QApproximation:
     @property
     def action(self): pass
 
-    def __getattr__(self, name):
-        if name in self.hyper_params:
-            return self.hyper_params[name]
-        else:
-            raise AttributeError()
-
     @staticmethod
-    def reward(game):
+    def instant_reward(game):
         if game.eat:
             return 10
         elif game.death:
@@ -168,18 +159,24 @@ class DQN:
     exp = namedtuple('exp', ('state', 'action', 'reward', 'next_state'))
 
     def __init__(self, ipt_size, out_size):
-        self.q = QApproximation(ipt_size, out_size)
+        self.q_network = QApproximation(ipt_size, out_size)
+        self.actions = list(range(out_size))
         self.experience_size = 1000
         self.experience_pool = []
+        self.steps = 10000
+        self.sess = tf.Session()
+        self.hyper_params = {
+            'alpha': 0.3,
+            'epsilon': 0.3,
+            'gamma': 0.9,
+        }
 
     def gain_experiences(self, game):
-        for _ in self.experience_size:
+        for _ in range(self.experience_size):
             state = self.observe(game)
-            action_index = np.random.choice(game.actions)
+            action_index = np.random.choice(self.actions)
             game.interact(action_index)
             reward = self.q.reward(game)
-            if reward == -10:
-                game.reset()
             next_state = self.observe(game)
             self.experience_pool.append(self.exp(
                 state=state,
@@ -187,9 +184,40 @@ class DQN:
                 reward=reward,
                 next_state=next_state,
             ))
+            if reward == -10:
+                game.reset()
 
     def experience_replay(self):
         pass
+
+    def train(self, game):
+        game.reset()
+        for step in range(self.steps):
+            state = game.state
+            epsilon = np.random.rand()
+            action_index = self.epsilon_greedy(epsilon)
+            game.interact(action_index)
+            instant_reward = self.q.instant_reward(game)
+            next_state, terminal = self.observe(game)
+            if terminal:
+                reward = instant_reward
+            else:
+                target = self.sess.run(self.target)
+                reward = instant_reward + self.gamma *
+
+            self.experience_pool.append(self.exp(
+                state=state,
+                action=action_index,
+                reward=instant_reward,
+                next_state=next_state,
+            ))
+
+
+    def epsilon_greedy(self, epsilon, next_state):
+        if epsilon < self.epsilon:
+            return np.random.choice(self.actions)
+        else:
+            return self.sess.run(self.target, feed_dict={self.q_network.ipt: next_state})
 
     @property
     def action(self):
@@ -197,7 +225,24 @@ class DQN:
 
     @staticmethod
     def observe(game):
-        return game.state
+        return game.state, game.death
+
+    @property
+    def target(self):
+        return self.q.networks['target']
+
+    @property
+    def q(self):
+        return self.q.networks['approximation']
+
+    def __getattr__(self, name):
+        if name in self.hyper_params:
+            return self.hyper_params[name]
+        else:
+            raise AttributeError()
+
+    def __del__(self):
+        self.sess.close()
 
 
 if __name__ == '__main__':

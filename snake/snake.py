@@ -146,7 +146,7 @@ class Snake(Rect):
         ]
 
     def reset(self):
-        self.pos = self.INITIAL_POS
+        self.pos = self.INITIAL_POS[:]
         self.head = self[0]
         self.direction = self.RIGHT
 
@@ -177,7 +177,7 @@ class Game:
             'wall': -2
         }
 
-        self._state = np.zeros((self.number + 1, self.number + 1))
+        self._state = np.zeros((self.number + 2, self.number + 2))
         self._state[[0, self.number], :] = self.value['wall']
         self._state[:, [0, self.number]] = self.value['wall']
         self.block_size = block_size
@@ -227,6 +227,8 @@ class Game:
     def reset(self):
         self.snake.reset()
         self.food.replenish(self.allowed)
+        self._state[[0, self.number], :] = self.value['wall']
+        self._state[:, [0, self.number]] = self.value['wall']
 
     def play(self, engine=None):
         while True:
