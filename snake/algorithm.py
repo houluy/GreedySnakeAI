@@ -15,14 +15,20 @@ class QApproximation:
         ('name', 'layer', 'shape', 'stddev', 'bias', 'regularizer', 'regularizer_weight', 'activation')
     )
 
-    def __init__(self, ipt_size, out_size, ipt_channel=1):
+    def __init__(self, ipt_size, out_size, batch_size, ipt_channel=1):
         self.ipt_size = ipt_size
         self.ipt_shape = (self.ipt_size, self.ipt_size)
         self.ipt_channel = ipt_channel
+        self.batch_size = batch_size
         self.opt_size = out_size
-        self.ipt = tf.placeholder(tf.float32, shape=(None, *self.ipt_shape, self.ipt_channel))
+        self.ipt = tf.placeholder(tf.float32, shape=(self.batch_size, *self.ipt_shape, self.ipt_channel))
+        self.reward = tf.placeholder(tf.float32, shape=(self.batch_size, 1))
+
+        # Below is the output mask that only the chosen neural (action) will output Q.
+        self.opt_mask = tf.placeholder(tf.float32, shape=(self.batch_size, self.opt_size, 1))
         self.reg_lambda = 0.03
-        self.optimizer = tf.train.AdamOptimizer(self.alpha)
+        self.alpha = 0.03
+        self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
 
         c_strides = (1, 1, 1, 1)
         p_strides = (1, 2, 2, 1)
@@ -78,14 +84,14 @@ class QApproximation:
                 self.FCLayers(
                     name=name,
                     layer=6,
-                    shape=4,
+                    shape=self.opt_size,
                     stddev=stddev,
                     bias=biases,
                     regularizer=None,
                     regularizer_weight=self.reg_lambda,
                     activation=None,
                 )
-            ])
+            ], name=name)
         self._action = 0
 
     @staticmethod
@@ -128,45 +134,42 @@ class QApproximation:
                 clayer = tf.add(tf.matmul(ipt_layer, weights), biases)
                 if opt_layer.activation is not None:
                     clayer = opt_layer.activation(clayer)
-            return clayer
+        return clayer
 
-    def build_all(self, structure):
+    def build_all(self, structure, name):
         current = self.ipt
         for layer in structure:
             current = self._build_layer(current, layer)
-        return tf.nn.softmax(current)
+        if name == 'approximation':
+            return tf.matmul(current, self.opt_mask)
+        else:
+            return current
 
     @property
-    def loss(self): pass
+    def loss(self):
+        return tf.reduce_mean(tf.square(self.reward - self.networks['approximation']))
 
     @property
     def action(self): pass
-
-    @staticmethod
-    def instant_reward(game):
-        if game.eat:
-            return 10
-        elif game.death:
-            return -10
-        else:
-            return 0
 
     def train(self, sess): pass
 
 
 class DQN:
 
-    exp = namedtuple('exp', ('state', 'action', 'reward', 'next_state'))
+    exp = namedtuple('exp', ('state', 'action', 'reward', 'next_state', 'terminal'))
 
     def __init__(self, ipt_size, out_size):
         self.q_network = QApproximation(ipt_size, out_size)
         self.actions = list(range(out_size))
-        self.experience_size = 1000
+        self.experience_size = 0
         self.experience_pool = []
-        self.steps = 10000
+        self.steps = 1000
+        self.episodes = 10000
+        self.minibatch_size = 128
+        self.target_update_episode = 10
         self.sess = tf.Session()
         self.hyper_params = {
-            'alpha': 0.3,
             'epsilon': 0.3,
             'gamma': 0.9,
         }
@@ -190,34 +193,55 @@ class DQN:
     def experience_replay(self):
         pass
 
+    def _convert(self, minibatch):
+        'Convert minibatch from namedtuple to multi-dimensional matrix'
+        for block in minibatch:
+            pass
+        return minibatch
+
     def train(self, game):
         game.reset()
-        for step in range(self.steps):
+        for episode in range(self.episodes):
             state = game.state
-            epsilon = np.random.rand()
-            action_index = self.epsilon_greedy(epsilon)
-            game.interact(action_index)
-            instant_reward = self.q.instant_reward(game)
-            next_state, terminal = self.observe(game)
-            if terminal:
-                reward = instant_reward
-            else:
-                target = self.sess.run(self.target)
-                reward = instant_reward + self.gamma *
+            for step in range(self.steps):
+                epsilon = np.random.rand()
+                action_index = self.epsilon_greedy(epsilon)
+                game.interact(action_index)
+                next_state, instant_reward, terminal = self.observe(game)
+                self.experience_pool.append(self.exp(
+                    state=state,
+                    action=action_index,
+                    reward=instant_reward,
+                    next_state=next_state,
+                    terminal=terminal,
+                ))  # Gaining experience pool
+                self.experience_size += 1
+                if self.experience_size < self.minibatch_size:  # Until it satisfy minibatch size
+                    continue
+                else:  # sample minibatch samples in experience pool
+                    minibatch = np.random.choice(self.experience_pool, self.minibatch_size)
+                minibatch = self._convert(minibatch)
+                if terminal:
+                    reward = instant_reward
+                else:
+                    target = self.sess.run(self.target, feed_dict={self.ipt: next_state})
+                    reward = instant_reward + self.gamma * target.max()
+                self.sess.run(
+                    self.q.optimizer,
+                    feed_dict={
+                        self.ipt: minibatch.state_batch,
+                        self.reward: minibatch.reward_batch,
+                        self.opt: minibatch.action_batch,
+                    }
+                )
+                if step % self.target_update_episode == 0:
+                    self.q.update_target()
 
-            self.experience_pool.append(self.exp(
-                state=state,
-                action=action_index,
-                reward=instant_reward,
-                next_state=next_state,
-            ))
-
-
-    def epsilon_greedy(self, epsilon, next_state):
+    def epsilon_greedy(self, epsilon, state):
         if epsilon < self.epsilon:
             return np.random.choice(self.actions)
         else:
-            return self.sess.run(self.target, feed_dict={self.q_network.ipt: next_state})
+            return self.sess.run(self.q, feed_dict={self.ipt: state}).argmax()
 
     @property
     def action(self):
@@ -225,15 +249,27 @@ class DQN:
 
     @staticmethod
     def observe(game):
-        return game.state, game.death
+        return game.state, game.instant_reward, game.death
 
     @property
     def target(self):
-        return self.q.networks['target']
+        return self.q_networks['target']
 
     @property
     def q(self):
-        return self.q.networks['approximation']
+        return self.q_networks['approximation']
+
+    @property
+    def ipt(self):
+        return self.q_network.ipt
+
+    @property
+    def reward(self):
+        return self.q_network.reward
+
+    @property
+    def mast(self):
+        return self.q_network.opt_mask
 
     def __getattr__(self, name):
         if name in self.hyper_params:

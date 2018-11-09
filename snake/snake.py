@@ -230,6 +230,15 @@ class Game:
         self._state[[0, self.number], :] = self.value['wall']
         self._state[:, [0, self.number]] = self.value['wall']
 
+    @property
+    def instant_reward(self):
+        if self.eat:
+            return 10
+        elif self.death:
+            return -10
+        else:
+            return 0
+
     def play(self, engine=None):
         while True:
             if engine:
