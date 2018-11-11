@@ -25,7 +25,7 @@ class QApproximation:
         self.reward = tf.placeholder(tf.float32, shape=(self.batch_size, 1))
 
         # Below is the output mask that only the chosen neural (action) will output Q.
-        self.opt_mask = tf.placeholder(tf.float32, shape=(self.batch_size, self.opt_size, 1))
+        # self.opt_mask = tf.placeholder(tf.float32, shape=(self.batch_size, self.opt_size, 1))
         self.reg_lambda = 0.03
         self.alpha = 0.03
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
@@ -140,10 +140,10 @@ class QApproximation:
         current = self.ipt
         for layer in structure:
             current = self._build_layer(current, layer)
-        if name == 'approximation':
-            return tf.matmul(current, self.opt_mask)
-        else:
-            return current
+        # if name == 'approximation':
+        #     return tf.matmul(current, self.opt_mask)
+        # else:
+        return current
 
     @property
     def loss(self):
@@ -157,7 +157,7 @@ class QApproximation:
 
 class DQN:
 
-    exp = namedtuple('exp', ('state', 'action', 'reward', 'next_state', 'terminal'))
+    exp = namedtuple('exp', ('state', 'action', 'instant', 'next_state', 'terminal'))
 
     def __init__(self, ipt_size, out_size):
         self.q_network = QApproximation(ipt_size, out_size)
@@ -184,7 +184,7 @@ class DQN:
             self.experience_pool.append(self.exp(
                 state=state,
                 action=action_index,
-                reward=reward,
+                instant=reward,
                 next_state=next_state,
             ))
             if reward == -10:
@@ -196,8 +196,12 @@ class DQN:
     def _convert(self, minibatch):
         'Convert minibatch from namedtuple to multi-dimensional matrix'
         for block in minibatch:
-            pass
-        return minibatch
+            if block.terminal:
+                reward = block.instant_reward
+            else:
+                target = self.sess.run(self.target, feed_dict={self.ipt: block.next_state})
+                reward = block.instant_reward + self.gamma * target.max()
+            return minibatch
 
     def train(self, game):
         game.reset()
@@ -211,7 +215,7 @@ class DQN:
                 self.experience_pool.append(self.exp(
                     state=state,
                     action=action_index,
-                    reward=instant_reward,
+                    instant=instant_reward,
                     next_state=next_state,
                     terminal=terminal,
                 ))  # Gaining experience pool
@@ -221,17 +225,11 @@ class DQN:
                 else:  # sample minibatch samples in experience pool
                     minibatch = np.random.choice(self.experience_pool, self.minibatch_size)
                 minibatch = self._convert(minibatch)
-                if terminal:
-                    reward = instant_reward
-                else:
-                    target = self.sess.run(self.target, feed_dict={self.ipt: next_state})
-                    reward = instant_reward + self.gamma * target.max()
                 self.sess.run(
                     self.q.optimizer,
                     feed_dict={
                         self.ipt: minibatch.state_batch,
                         self.reward: minibatch.reward_batch,
-                        self.opt: minibatch.action_batch,
                     }
                 )
                 if step % self.target_update_episode == 0:
