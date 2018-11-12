@@ -4,6 +4,5 @@ from snake import Game
 g = Game(number=10, block_size=15)
 dqn = DQN(ipt_size=10, out_size=4)
 
-dqn.gain_experiences(g)
-print(dqn.experience_pool)
+dqn.train(g)
 

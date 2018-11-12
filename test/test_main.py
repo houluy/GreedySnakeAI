@@ -21,5 +21,8 @@ class TestGame(unittest.TestCase):
             self.assertEqual(self.g.snake.available_directions, list(all_directions - set([direction])))
 
 
+class TestDQN(unitest.TestCase): pass
+
+
 if __name__ == '__main__':
     unittest.main()
