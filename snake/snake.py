@@ -169,6 +169,7 @@ class Game:
 
     def __init__(self, number, block_size):
         self.number = number
+        self.state_number = self.number + 2
         self.grid = set(itertools.product(range(self.number), range(self.number)))
         self.value = {
             'head': 1,
@@ -177,7 +178,7 @@ class Game:
             'wall': -2
         }
 
-        self._state = np.zeros((self.number + 2, self.number + 2))
+        self._state = np.zeros((self.state_number, self.state_number))
         self._state[[0, self.number], :] = self.value['wall']
         self._state[:, [0, self.number]] = self.value['wall']
         self.block_size = block_size
@@ -206,7 +207,7 @@ class Game:
         for body in self.snake:
             self._state[body[1] + 1, body[0] + 1] = self.value['body']
         self._state[self.snake.head[1] + 1, self.snake.head[0] + 1] = self.value['head']
-        return self._state
+        return np.array([self._state]).reshape(self.state_number, self.state_number, 1)
 
     @property
     def eat(self):

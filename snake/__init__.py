@@ -1,8 +1,12 @@
 from algorithm import DQN
 from snake import Game
 
-g = Game(number=10, block_size=15)
-dqn = DQN(ipt_size=10, out_size=4)
+number = 10
+actions = 4
+state = 12
+
+g = Game(number=number, block_size=15)
+dqn = DQN(ipt_size=state, out_size=actions)
 
 dqn.train(g)
 

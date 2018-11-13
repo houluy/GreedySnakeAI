@@ -25,7 +25,7 @@ class QApproximation:
         self.reward = tf.placeholder(tf.float32, shape=(None, 1))
 
         # Below is the output mask that only the chosen neural (action) will output Q.
-        self.opt_mask = tf.placeholder(tf.float32, shape=(None, self.opt_size))
+        self.opt_mask = tf.placeholder(tf.float32, shape=(self.opt_size, None))
         self.reg_lambda = 0.03
         self.alpha = 0.03
 
@@ -93,6 +93,7 @@ class QApproximation:
             ], name=name)
         self._action = 0
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
+        self.saver = tf.Saver()
 
     @staticmethod
     def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):
@@ -147,12 +148,18 @@ class QApproximation:
 
     @property
     def loss(self):
-        return tf.reduce_mean(tf.square(self.reward - self.networks['approximation']))
+        return tf.reduce_mean(tf.square(self.reward - self['approximation']))
 
     @property
     def action(self): pass
 
     def train(self, sess): pass
+
+    def update(self):
+
+
+    def __getitem__(self, item):
+        return self.networks[item]
 
 
 class DQN:
@@ -160,6 +167,7 @@ class DQN:
     exp = namedtuple('exp', ('state', 'action', 'instant', 'next_state', 'terminal'))
 
     def __init__(self, ipt_size, out_size):
+        self.out_size = out_size
         self.q_network = QApproximation(ipt_size, out_size, batch_size=128)
         self.actions = list(range(out_size))
         self.experience_size = 0
@@ -169,6 +177,7 @@ class DQN:
         self.minibatch_size = 128
         self.target_update_episode = 10
         self.sess = tf.Session()
+        self.sess.run(tf.global_variables_initializer())
         self.hyper_params = {
             'epsilon': 0.3,
             'gamma': 0.9,
@@ -202,13 +211,15 @@ class DQN:
         }
         for block in minibatch:
             batch['state'].append(block.state)
-            batch['action'].append(block.action)
+            batch['action'].append([1. if _ == block.action else 0. for _ in self.actions])
             if block.terminal:
                 reward = block.instant
             else:
-                target = self.sess.run(self.target, feed_dict={self.ipt: block.next_state})
+                target = self.sess.run(self.target, feed_dict={self.ipt: np.array([block.next_state])})
                 reward = block.instant + self.gamma * target.max()
             batch['reward'].append(reward)
+        batch['action'] = np.array(batch['action']).T
+        batch['reward'] = np.array([batch['reward']]).T
         return batch
 
     def train(self, game):
@@ -227,14 +238,17 @@ class DQN:
                     next_state=next_state,
                     terminal=terminal,
                 ))  # Gaining experience pool
+                if terminal:
+                    game.reset()
                 self.experience_size += 1
                 if self.experience_size < self.minibatch_size:  # Until it satisfy minibatch size
                     continue
                 else:  # sample minibatch samples in experience pool
-                    minibatch = np.random.choice(self.experience_pool, self.minibatch_size)
+                    choices = np.random.choice(list(range(self.experience_size)), self.minibatch_size)
+                    minibatch = [self.experience_pool[_] for _ in choices]
                 batch = self._convert(minibatch)
                 self.sess.run(
-                    self.q.optimizer,
+                    self.optimizer,
                     feed_dict={
                         self.ipt: batch['state'],
                         self.mask: batch['action'],
@@ -242,13 +256,13 @@ class DQN:
                     }
                 )
                 if step % self.target_update_episode == 0:
-                    self.q.update_target()
+                    self.q_network.update_target()
 
     def epsilon_greedy(self, epsilon, state):
         if epsilon < self.epsilon:
             return np.random.choice(self.actions)
         else:
-            return self.sess.run(self.q, feed_dict={self.ipt: state}).argmax()
+            return self.sess.run(self.q, feed_dict={self.ipt: [state], self.mask: np.array([1., 1., 1., 1.]).reshape(4, 1)}).argmax()
 
     @property
     def action(self):
@@ -260,11 +274,11 @@ class DQN:
 
     @property
     def target(self):
-        return self.q_networks['target']
+        return self.q_network['target']
 
     @property
     def q(self):
-        return self.q_networks['approximation']
+        return self.q_network['approximation']
 
     @property
     def ipt(self):
@@ -275,8 +289,12 @@ class DQN:
         return self.q_network.reward
 
     @property
-    def mast(self):
+    def mask(self):
         return self.q_network.opt_mask
+
+    @property
+    def optimizer(self):
+        return self.q_network.optimizer
 
     def __getattr__(self, name):
         if name in self.hyper_params:
