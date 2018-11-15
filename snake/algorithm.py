@@ -34,9 +34,9 @@ class QApproximation:
         k_size = (1, 3, 3, 1)
         stddev = 5e-2
         biases = 0.1
-        layer_name = ['approximation', 'target']
+        model_name = ['Q', 'target']
         self.networks = {}
-        for name in layer_name:
+        for name in model_name:
             self.networks[name] = self.build_all([
                 self.ConvLayers(
                     name=name,
@@ -93,7 +93,7 @@ class QApproximation:
             ], name=name)
         self._action = 0
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
-        self.saver = tf.Saver()
+        self.saver = tf.train.Saver()
 
     @staticmethod
     def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):
@@ -141,22 +141,31 @@ class QApproximation:
         current = self.ipt
         for layer in structure:
             current = self._build_layer(current, layer)
-        if name == 'approximation':
+        if name == 'Q':
             return tf.matmul(current, self.opt_mask)
         else:
             return current
 
     @property
     def loss(self):
-        return tf.reduce_mean(tf.square(self.reward - self['approximation']))
+        return tf.reduce_mean(tf.square(self.reward - self['Q']))
 
     @property
     def action(self): pass
 
     def train(self, sess): pass
 
-    def update(self):
+    def _copy_model(self, sess):
+        m1 = [t for t in tf.trainable_variables() if t.name.startswith('Q')]
+        m1 = sorted(m1, key=lambda v: v.name)
+        m2 = [t for t in tf.trainable_variables() if t.name.startswith('target')]
+        m2 = sorted(m2, key=lambda v: v.name)
 
+        ops = []
+        for t1, t2 in zip(m1, m2):
+            ops.append(t2.assign(t1))
+
+        sess.run(ops)
 
     def __getitem__(self, item):
         return self.networks[item]
@@ -256,7 +265,7 @@ class DQN:
                     }
                 )
                 if step % self.target_update_episode == 0:
-                    self.q_network.update_target()
+                    self.q_network._copy_model(self.sess)
 
     def epsilon_greedy(self, epsilon, state):
         if epsilon < self.epsilon:
@@ -278,7 +287,7 @@ class DQN:
 
     @property
     def q(self):
-        return self.q_network['approximation']
+        return self.q_network['Q']
 
     @property
     def ipt(self):
