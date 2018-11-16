@@ -185,8 +185,10 @@ class DQN:
         self.episodes = 10000
         self.minibatch_size = 128
         self.target_update_episode = 10
+        self.save_episode = 100
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
+        self.model_file = '../models/model.ckpt'
         self.hyper_params = {
             'epsilon': 0.3,
             'gamma': 0.9,
@@ -231,15 +233,21 @@ class DQN:
         batch['reward'] = np.array([batch['reward']]).T
         return batch
 
-    def train(self, game):
+    def train(self, game, window=None):
+        try:
+            self.q_network.saver.restore(self.sess, self.model_file)
+        except ValueError:
+            print('First-time train')
         game.reset()
         for episode in range(self.episodes):
             state = game.state
             for step in range(self.steps):
+                if window is not None:
+                    window.draw(game.snake, game.food)
                 epsilon = np.random.rand()
                 action_index = self.epsilon_greedy(epsilon, state)
                 game.interact(action_index)
-                next_state, instant_reward, terminal = self.observe(game)
+                next_state, instant_reward, terminal, eat = self.observe(game)
                 self.experience_pool.append(self.exp(
                     state=state,
                     action=action_index,
@@ -249,6 +257,8 @@ class DQN:
                 ))  # Gaining experience pool
                 if terminal:
                     game.reset()
+                elif eat:
+                    game.new_food()
                 self.experience_size += 1
                 if self.experience_size < self.minibatch_size:  # Until it satisfy minibatch size
                     continue
@@ -266,6 +276,8 @@ class DQN:
                 )
                 if step % self.target_update_episode == 0:
                     self.q_network._copy_model(self.sess)
+                if step % self.save_episode == 0:
+                    self.q_network.saver.save(self.sess, self.model_file)
 
     def epsilon_greedy(self, epsilon, state):
         if epsilon < self.epsilon:
@@ -279,7 +291,7 @@ class DQN:
 
     @staticmethod
     def observe(game):
-        return game.state, game.instant_reward, game.death
+        return game.state, game.instant_reward, game.death, game.eat
 
     @property
     def target(self):
