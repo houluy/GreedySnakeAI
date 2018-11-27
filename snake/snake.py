@@ -23,8 +23,12 @@ class Snake(Rect):
         self.number = kwargs.pop('number')
         super().__init__(**kwargs)
         self.reset()
-        self._body_color = (249, 96, 96)
-        self._head_color = (5, 156, 75)
+        self._body_bcolor = (84, 255, 159)
+        self._body_fcolor = (46, 139, 87)
+        self._head_bcolor = (0, 191, 255)
+        self._head_fcolor = (0, 0, 205)
+        self._innerratio = 0.1
+        self._difference = self.block_size * self._innerratio
         self.all_directions = [self.LEFT, self.RIGHT, self.UP, self.DOWN]
         self.action_to_direction = dict(enumerate(self.all_directions))
 
@@ -32,9 +36,16 @@ class Snake(Rect):
         return self.pos[item]
 
     def block(self, pos, window, head=False):
-        rect = (*pos, self.block_size, self.block_size)
-        color = self._head_color if head else self._body_color
-        window.brush("rect", color, rect, 0)
+        brect = (*pos, self.block_size, self.block_size)
+        frect = (pos[0] + self._difference,
+                 pos[1] + self._difference,
+                 self.block_size * (1 - 2 * self._innerratio),
+                 self.block_size * (1 - 2 * self._innerratio)
+                )
+        fcolor, bcolor = (self._head_fcolor, self._head_bcolor) \
+            if head else (self._body_fcolor, self._body_bcolor)
+        window.brush("rect", bcolor, brect, 0)
+        window.brush("rect", fcolor, frect, 0)
 
     def draw(self, window):
         for p in self:
@@ -203,7 +214,7 @@ class Game:
 
 
 if __name__ == '__main__':
-    expansion = 1.5
+    expansion = 2
     block_size = int(15 * expansion)
     g = Game(number=20, block_size=block_size)
     from window import Window
