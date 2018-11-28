@@ -18,9 +18,7 @@ class Shape:
     def _c2p(self, pos, window):
         return window.base[0] + pos[0]*self.block_size, window.base[1] + pos[1]*self.block_size
 
-    @staticmethod
-    def _tuple_add(t1, t2):
-        return t1[0] + t2[0], t1[1] + t2[1]
+
 
 
 class Rect(Shape):

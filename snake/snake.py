@@ -8,49 +8,37 @@ import sys
 import random
 import itertools
 import numpy as np
-from shapes import Rect, Circle
+from collections.abc import Sequence
 
 
-class Snake(Rect):
+class Snake(Sequence):
 
     UP = (0, -1)
     DOWN = (0, 1)
     RIGHT = (1, 0)
     LEFT = (-1, 0)
-    INITIAL_POS = [(4, 0), (3, 0), (2, 0), (1, 0), (0, 0)]
+    INITIAL_POS = [(4, 1), (3, 1), (2, 1), (1, 1)]
 
-    def __init__(self, **kwargs):
-        self.number = kwargs.pop('number')
-        super().__init__(**kwargs)
-        self.reset()
-        self._body_bcolor = (84, 255, 159)
-        self._body_fcolor = (46, 139, 87)
-        self._head_bcolor = (0, 191, 255)
-        self._head_fcolor = (0, 0, 205)
-        self._innerratio = 0.1
-        self._difference = self.block_size * self._innerratio
+    def __init__(self, number):
+        self.number = number
         self.all_directions = [self.LEFT, self.RIGHT, self.UP, self.DOWN]
         self.action_to_direction = dict(enumerate(self.all_directions))
 
     def __getitem__(self, item):
         return self.pos[item]
 
-    def block(self, pos, window, head=False):
-        brect = (*pos, self.block_size, self.block_size)
-        frect = (pos[0] + self._difference,
-                 pos[1] + self._difference,
-                 self.block_size * (1 - 2 * self._innerratio),
-                 self.block_size * (1 - 2 * self._innerratio)
-                )
-        fcolor, bcolor = (self._head_fcolor, self._head_bcolor) \
-            if head else (self._body_fcolor, self._body_bcolor)
-        window.brush("rect", bcolor, brect, 0)
-        window.brush("rect", fcolor, frect, 0)
+    def __len__(self):
+        return len(self.pos)
 
-    def draw(self, window):
-        for p in self:
-            head = True if p == self[0] else False
-            self.block(self._c2p(p, window), window, head=head)
+    def __iter__(self):
+        return iter(self.pos)
+
+    def __contains__(self, item):
+        return item in self.pos
+
+    @staticmethod
+    def _tuple_add(t1, t2):
+        return t1[0] + t2[0], t1[1] + t2[1]
 
     @property
     def occupation(self):
@@ -68,27 +56,14 @@ class Snake(Rect):
     def turn(self, action_index):
         if action_index is None:
             return
-        next_direction = self.action_to_direction[action_index]
+        try:
+            next_direction = self.action_to_direction[action_index]
+        except KeyError:
+            next_direction = action_index
         if next_direction == self.inversion:
             return
         else:
             self.direction = next_direction
-
-    @property
-    def death(self):
-        body = self[1:]
-        if self.head in body:
-            return True
-        if self.head[0] < 0 or self.head[0] > self.number - 1 or self.head[1] < 0 or self.head[1] > self.number - 1:
-            return True
-        return False
-
-    def eat(self, food):
-        if self.head == food:
-            self.pos.append(self[-1])
-            return True
-        else:
-            return False
 
     @property
     def available_directions(self):
@@ -103,10 +78,9 @@ class Snake(Rect):
         self.direction = self.RIGHT
 
 
-class Food(Circle):
+class Food:
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self):
         self.color = (52, 115, 243)
 
     @staticmethod
@@ -119,10 +93,11 @@ class Food(Circle):
 
 class Game:
 
-    def __init__(self, number, block_size):
+    def __init__(self, number):
         self.number = number
         self.state_number = self.number + 2
-        self.grid = set(itertools.product(range(self.number), range(self.number)))
+        self.boundry = (1, self.number + 1)
+        self.grid = set(itertools.product(range(*self.boundry), range(*self.boundry)))
         self.value = {
             'head': 1,
             'body': -1,
@@ -131,14 +106,11 @@ class Game:
         }
 
         self._state = np.zeros((self.state_number, self.state_number))
-        self._state[[0, self.number], :] = self.value['wall']
-        self._state[:, [0, self.number]] = self.value['wall']
         self.block_size = block_size
-        self.snake = Snake(number=self.number, block_size=self.block_size)
+        self.snake = Snake(number=self.number)
+        self.food = Food()
 
-        self.food = Food(block_size=self.block_size)
-
-        self.food.replenish(self.allowed)
+        self.reset()
 
         self.score = 0
 
@@ -154,20 +126,26 @@ class Game:
 
     @property
     def state(self):
-        self._state[1:self.number - 1, 1:self.number - 1] = 0
-        self._state[self.food.pos[1] + 1, self.food.pos[0] + 1] = self.value['food']
+        self._state[1:self.number + 1, 1:self.number + 1] = 0
+        self._state[self.food.pos[0], self.food.pos[1]] = self.value['food']
         for body in self.snake:
-            self._state[body[1] + 1, body[0] + 1] = self.value['body']
-        self._state[self.snake.head[1] + 1, self.snake.head[0] + 1] = self.value['head']
+            self._state[body[0], body[1]] = self.value['body']
+        self._state[self.snake.head[0], self.snake.head[1]] = self.value['head']
         return np.array([self._state]).reshape(self.state_number, self.state_number, 1)
 
     @property
     def eat(self):
-        return self.snake.eat(self.food.pos)
+        return True if self.snake.head == self.food.pos else False
 
     @property
     def death(self):
-        return self.snake.death
+        body = self.snake[1:]
+        if self.snake.head in body:
+            return True
+        if (not self.boundry[0] <= self.snake.head[0] <= self.boundry[1])\
+                or (not self.boundry[0] <= self.snake.head[1] <= self.boundry[1]):
+            return True
+        return False
 
     @staticmethod
     def action(neural):
@@ -180,8 +158,8 @@ class Game:
     def reset(self):
         self.snake.reset()
         self.food.replenish(self.allowed)
-        self._state[[0, self.number], :] = self.value['wall']
-        self._state[:, [0, self.number]] = self.value['wall']
+        self._state[[0, self.number + 1], :] = self.value['wall']
+        self._state[:, [0, self.number + 1]] = self.value['wall']
 
     def new_food(self):
         self.score += 1
@@ -199,7 +177,7 @@ class Game:
     def play(self, engine=None):
         while True:
             if engine:
-                engine.draw(self.snake, self.food)
+                engine.draw(self.state)
                 action_index = engine.action
                 if action_index is False:
                     return
@@ -207,6 +185,7 @@ class Game:
                 action_index = self.snake.direction
             self.snake.turn(action_index)
             self.snake.move()
+            print(self.snake.head)
             if self.eat:
                 self.new_food()
             if self.death:
@@ -214,10 +193,11 @@ class Game:
 
 
 if __name__ == '__main__':
-    expansion = 2
+    expansion = 1.5
+    number = 8
     block_size = int(15 * expansion)
-    g = Game(number=20, block_size=block_size)
+    g = Game(number=number)
     from window import Window
-    window = Window(number=20, block_size=block_size, expansion=expansion, speed=0.5)
+    window = Window(number=number, block_size=block_size, expansion=expansion, speed=0.5)
     g.play(engine=window)
     sys.exit(0)
