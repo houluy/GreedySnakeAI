@@ -2,13 +2,10 @@ from algorithm import DQN
 from snake import Game
 from window import Window
 
+base_size = 20
+expansion = 1.5
 number = 5
-actions = 4
-state = number + 2
-block_size = 30
-
-g = Game(number=number, block_size=block_size)
-window = Window(number=number, block_size=block_size)
-dqn = DQN(ipt_size=state, out_size=actions)
-
-dqn.train(g, window)
+g = Game(number=number)
+window = Window(number=number, block_size=base_size, expansion=expansion, speed=0.1)
+dqn = DQN(game=g)
+dqn.train(window)

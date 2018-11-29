@@ -22,6 +22,7 @@ class Snake(Sequence):
     def __init__(self, number):
         self.number = number
         self.all_directions = [self.LEFT, self.RIGHT, self.UP, self.DOWN]
+        self.dirnumber = len(self.all_directions)
         self.action_to_direction = dict(enumerate(self.all_directions))
 
     def __getitem__(self, item):
@@ -144,6 +145,10 @@ class Game:
     @property
     def eat(self):
         return self.snake.eat(self.food.pos)
+
+    @property
+    def info(self):
+        return self.state_number, self.snake.dirnumber
 
     @property
     def death(self):

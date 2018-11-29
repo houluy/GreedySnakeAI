@@ -155,7 +155,8 @@ class QApproximation:
 
     def train(self, sess): pass
 
-    def _copy_model(self, sess):
+    @staticmethod
+    def _copy_model(sess):
         m1 = [t for t in tf.trainable_variables() if t.name.startswith('Q')]
         m1 = sorted(m1, key=lambda v: v.name)
         m2 = [t for t in tf.trainable_variables() if t.name.startswith('target')]
@@ -164,7 +165,6 @@ class QApproximation:
         ops = []
         for t1, t2 in zip(m1, m2):
             ops.append(t2.assign(t1))
-
         sess.run(ops)
 
     def __getitem__(self, item):
@@ -175,10 +175,12 @@ class DQN:
 
     exp = namedtuple('exp', ('state', 'action', 'instant', 'next_state', 'terminal'))
 
-    def __init__(self, ipt_size, out_size):
-        self.out_size = out_size
-        self.q_network = QApproximation(ipt_size, out_size, batch_size=128)
-        self.actions = list(range(out_size))
+    def __init__(self, game):
+        self.game = game
+        ipt_size, opt_size = self.game.info
+        self.out_size = opt_size
+        self.q_network = QApproximation(ipt_size, opt_size, batch_size=128)
+        self.actions = list(range(opt_size))
         self.experience_size = 0
         self.experience_pool = []
         self.steps = 1000
@@ -233,21 +235,21 @@ class DQN:
         batch['reward'] = np.array([batch['reward']]).T
         return batch
 
-    def train(self, game, window=None):
+    def train(self, window=None):
         try:
             self.q_network.saver.restore(self.sess, self.model_file)
         except ValueError:
             print('First-time train')
-        game.reset()
+        self.game.reset()
         for episode in range(self.episodes):
-            state = game.state
+            state = self.game.state
             for step in range(self.steps):
                 if window is not None:
-                    window.draw(game.snake, game.food)
+                    window.draw(state)
                 epsilon = np.random.rand()
                 action_index = self.epsilon_greedy(epsilon, state)
-                game.interact(action_index)
-                next_state, instant_reward, terminal, eat = self.observe(game)
+                self.game.interact(action_index)
+                next_state, instant_reward, terminal, eat = self.observe()
                 self.experience_pool.append(self.exp(
                     state=state,
                     action=action_index,
@@ -256,9 +258,9 @@ class DQN:
                     terminal=terminal,
                 ))  # Gaining experience pool
                 if terminal:
-                    game.reset()
+                    self.game.reset()
                 elif eat:
-                    game.new_food()
+                    self.game.new_food()
                 self.experience_size += 1
                 if self.experience_size < self.minibatch_size:  # Until it satisfy minibatch size
                     continue
@@ -289,9 +291,9 @@ class DQN:
     def action(self):
         return self._action
 
-    @staticmethod
-    def observe(game):
-        return game.state, game.instant_reward, game.death, game.eat
+    @property
+    def observe(self):
+        return self.game.state, self.game.instant_reward, self.game.death, self.game.eat
 
     @property
     def target(self):
@@ -328,4 +330,8 @@ class DQN:
 
 
 if __name__ == '__main__':
-    dqn = DQN(ipt_size=20, out_size=4)
+    from snake import Game
+    number = 10
+    g = Game(number=number)
+    dqn = DQN(game=g)
+    dqn.train()

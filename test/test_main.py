@@ -18,7 +18,7 @@ class TestGame(unittest.TestCase):
         for direction, pos in test_pos.items():
             self.g.snake.pos = pos
             self.g.snake.head = self.g.snake.pos[0]
-            self.assertEqual(self.g.snake.available_directions, list(all_directions - set([direction])))
+            self.assertEqual(self.g.snake.available_directions, list(all_directions - {[direction]}))
 
 
 class TestDQN(unitest.TestCase): pass
