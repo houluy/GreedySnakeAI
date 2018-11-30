@@ -1,6 +1,7 @@
 import tensorflow as tf
 from collections import namedtuple
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 class QApproximation:
@@ -177,14 +178,13 @@ class DQN:
 
     def __init__(self, game):
         self.game = game
-        ipt_size, opt_size = self.game.info
-        self.out_size = opt_size
-        self.q_network = QApproximation(ipt_size, opt_size, batch_size=128)
-        self.actions = list(range(opt_size))
+        self.ipt_size, self.opt_size = self.game.info
+        self.q_network = QApproximation(self.ipt_size, self.opt_size, batch_size=128)
+        self.actions = list(range(self.opt_size))
         self.experience_size = 0
         self.experience_pool = []
-        self.steps = 1000
-        self.episodes = 10000
+        self.steps = 200
+        self.episodes = 10
         self.minibatch_size = 128
         self.target_update_episode = 10
         self.save_episode = 100
@@ -241,45 +241,57 @@ class DQN:
         except ValueError:
             print('First-time train')
         self.game.reset()
-        for episode in range(self.episodes):
-            state = self.game.state
-            for step in range(self.steps):
-                if window is not None:
-                    window.draw(state)
-                epsilon = np.random.rand()
-                action_index = self.epsilon_greedy(epsilon, state)
-                self.game.interact(action_index)
-                next_state, instant_reward, terminal, eat = self.observe()
-                self.experience_pool.append(self.exp(
-                    state=state,
-                    action=action_index,
-                    instant=instant_reward,
-                    next_state=next_state,
-                    terminal=terminal,
-                ))  # Gaining experience pool
-                if terminal:
-                    self.game.reset()
-                elif eat:
-                    self.game.new_food()
-                self.experience_size += 1
-                if self.experience_size < self.minibatch_size:  # Until it satisfy minibatch size
-                    continue
-                else:  # sample minibatch samples in experience pool
-                    choices = np.random.choice(list(range(self.experience_size)), self.minibatch_size)
-                    minibatch = [self.experience_pool[_] for _ in choices]
-                batch = self._convert(minibatch)
-                self.sess.run(
-                    self.optimizer,
-                    feed_dict={
-                        self.ipt: batch['state'],
-                        self.mask: batch['action'],
-                        self.reward: batch['reward'],
-                    }
-                )
-                if step % self.target_update_episode == 0:
-                    self.q_network._copy_model(self.sess)
-                if step % self.save_episode == 0:
-                    self.q_network.saver.save(self.sess, self.model_file)
+        plt.figure()
+        plt.ion()
+        episodes = []
+        lossar = []
+        state = self.game.state
+        for step in range(self.steps):
+            state = state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
+            epsilon = np.random.rand()
+            action_index = self.epsilon_greedy(epsilon, state)
+            self.game.interact(action_index)
+            if self.game.eat:
+                self.game.new_food()
+            next_state, instant_reward, terminal = self.observe
+            self.experience_pool.append(self.exp(
+                state=state,
+                action=action_index,
+                instant=instant_reward,
+                next_state=next_state,
+                terminal=terminal,
+            ))  # Gaining experience pool
+            if window is not None:
+                window.draw(state)
+            if terminal:
+                self.game.reset()
+            self.experience_size += 1
+            if self.experience_size < self.minibatch_size:  # Until it satisfy minibatch size
+                continue
+            else:  # sample minibatch samples in experience pool
+                choices = np.random.choice(list(range(self.experience_size)), self.minibatch_size)
+                minibatch = [self.experience_pool[_] for _ in choices]
+            plt.cla()
+            episodes.append(step)
+            batch = self._convert(minibatch)
+            _, loss = self.sess.run(
+                [self.optimizer, self.q_network.loss],
+                feed_dict={
+                    self.ipt: batch['state'],
+                    self.mask: batch['action'],
+                    self.reward: batch['reward'],
+                }
+            )
+            lossar.append(loss)
+            plt.plot(episodes, lossar)
+            plt.pause(1)
+            if step % self.target_update_episode == 0:
+                self.q_network._copy_model(self.sess)
+            if step % self.save_episode == 0:
+                self.q_network.saver.save(self.sess, self.model_file)
+        plt.ioff()
+        plt.show()
+        del window
 
     def epsilon_greedy(self, epsilon, state):
         if epsilon < self.epsilon:
@@ -293,7 +305,8 @@ class DQN:
 
     @property
     def observe(self):
-        return self.game.state, self.game.instant_reward, self.game.death, self.game.eat
+        state = self.game.state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
+        return state, self.game.instant_reward, self.game.death
 
     @property
     def target(self):
@@ -331,7 +344,10 @@ class DQN:
 
 if __name__ == '__main__':
     from snake import Game
+    #from window import Window
     number = 10
+    block_size = 20
     g = Game(number=number)
+    #window = Window(number=number, block_size=block_size, expansion=1.5, speed=0.2)
     dqn = DQN(game=g)
-    dqn.train()
+    dqn.train(window=None)
