@@ -183,7 +183,7 @@ class DQN:
         self.actions = list(range(self.opt_size))
         self.experience_size = 0
         self.experience_pool = []
-        self.steps = 200
+        self.steps = 2000
         self.episodes = 10
         self.minibatch_size = 128
         self.target_update_episode = 10
@@ -240,11 +240,14 @@ class DQN:
             self.q_network.saver.restore(self.sess, self.model_file)
         except ValueError:
             print('First-time train')
+        except tf.errors.InvalidArgumentError:
+            print('New game')
         self.game.reset()
-        plt.figure()
+        plt.figure('Loss')
         plt.ion()
         episodes = []
-        lossar = []
+        lossarr = []
+        lossave = []
         state = self.game.state
         for step in range(self.steps):
             state = state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
@@ -271,7 +274,6 @@ class DQN:
             else:  # sample minibatch samples in experience pool
                 choices = np.random.choice(list(range(self.experience_size)), self.minibatch_size)
                 minibatch = [self.experience_pool[_] for _ in choices]
-            plt.cla()
             episodes.append(step)
             batch = self._convert(minibatch)
             _, loss = self.sess.run(
@@ -282,9 +284,9 @@ class DQN:
                     self.reward: batch['reward'],
                 }
             )
-            lossar.append(loss)
-            plt.plot(episodes, lossar)
-            plt.pause(1)
+            lossarr.append(loss)
+            lossave.append(sum(lossarr)/(step - self.minibatch_size + 2))
+            self.show(episodes, lossarr, lossave)
             if step % self.target_update_episode == 0:
                 self.q_network._copy_model(self.sess)
             if step % self.save_episode == 0:
@@ -292,6 +294,17 @@ class DQN:
         plt.ioff()
         plt.show()
         del window
+
+    def show(self, episodes, lossarr, lossave):
+        plt.cla()
+        plt.title('Interactive loss over episodes')
+        plt.xlabel('Episodes')
+        plt.ylabel('Loss')
+        plt.grid(True)
+        plt.plot(episodes, lossarr, 'm+-', label='Instant loss')
+        plt.plot(episodes, lossave, 'co-', label='Moving Average loss')
+        plt.legend()
+        plt.pause(0.01)
 
     def epsilon_greedy(self, epsilon, state):
         if epsilon < self.epsilon:
