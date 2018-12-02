@@ -22,6 +22,8 @@ class Snake(Sequence):
     def __init__(self, number):
         self.number = number
         self.all_directions = [self.LEFT, self.RIGHT, self.UP, self.DOWN]
+        self.dir_names = ['left', 'right', 'up', 'down']
+        self.dir2names = dict(zip(self.all_directions, self.dir_names))
         self.dirnumber = len(self.all_directions)
         self.action_to_direction = dict(enumerate(self.all_directions))
 
@@ -159,10 +161,6 @@ class Game:
                 or (not self.boundry[0] <= self.snake.head[1] < self.boundry[1]):
             return True
         return False
-
-    @staticmethod
-    def action(neural):
-        return neural.action
 
     def interact(self, action_index):
         self.snake.turn(action_index)
