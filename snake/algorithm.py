@@ -93,6 +93,10 @@ class QApproximation:
                 )
             ], name=name)
         self._action = 0
+        self.global_step = tf.Variable(0, trainable=False)
+        self.epsilon_decay = 0.1
+        #self.epsilon = tf.train.ExponentialMovingAverage(self.moving_average_decay, self.global_step)
+        self.epsilon = tf.train.exponential_decay(0.9, self.global_step, 100, self.epsilon_decay, staircase=True)
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
         self.saver = tf.train.Saver()
 
@@ -173,7 +177,7 @@ class DQN:
 
     def __init__(self, game):
         self.game = game
-        self.ipt_size, self.opt_size = self.game.info
+        self.ipt_size, self.opt_size = self.game.size
         self.q_network = QApproximation(self.ipt_size, self.opt_size, batch_size=128)
         self.actions = list(range(self.opt_size))
         self.experience_size = 0
@@ -186,7 +190,7 @@ class DQN:
         self.sess.run(tf.global_variables_initializer())
         self.model_file = '../models/model.ckpt'
         self.hyper_params = {
-            'epsilon': 0.5,
+            'epsilon': 0.8,
             'gamma': 0.9,
         }
 
@@ -236,6 +240,8 @@ class DQN:
             print('First-time train')
         except tf.errors.InvalidArgumentError:
             print('New game')
+        except tf.errors.DataLossError:
+            print('FATAL ERROR, start new game')
         self.game.reset()
         plt.figure('Loss')
         plt.ion()
@@ -247,23 +253,20 @@ class DQN:
             while True:
                 state = state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
                 epsilon = np.random.rand()
-                action_index = self.epsilon_greedy(epsilon, state)
-                self.game.interact(action_index)
+                action = self.epsilon_greedy(epsilon, state)
+                next_state, reward, terminal, _ = self.game.step(action)
+                next_state = next_state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
                 if self.game.eat:
                     self.game.new_food()
-                next_state, instant_reward, terminal = self.observe
                 self.experience_pool.append(self.exp(
                     state=state,
-                    action=action_index,
-                    instant=instant_reward,
+                    action=action,
+                    instant=reward,
                     next_state=next_state,
                     terminal=terminal,
                 ))  # Gaining experience pool
-                if window is not None:
-                    window.draw(state)
-                self.experience_size += 1
+                self.game.render(window)
                 if terminal:
-                    self.game.reset()
                     if self.experience_size >= self.minibatch_size:  # Until it satisfy minibatch size
                         choices = np.random.choice(list(range(self.experience_size)), self.minibatch_size)
                         minibatch = [self.experience_pool[_] for _ in choices]
@@ -284,7 +287,9 @@ class DQN:
                             self.q_network._copy_model(self.sess)
                         if episode % self.save_episode == 0:
                             self.q_network.saver.save(self.sess, self.model_file)
+                    self.game.reset()
                     break
+                self.experience_size += 1
         plt.ioff()
         plt.show()
         del window
@@ -309,11 +314,6 @@ class DQN:
     @property
     def action(self):
         return self._action
-
-    @property
-    def observe(self):
-        state = self.game.state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
-        return state, self.game.instant_reward, self.game.death
 
     @property
     def target(self):

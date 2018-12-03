@@ -19,8 +19,7 @@ class Snake(Sequence):
     LEFT = (0, -1)
     INITIAL_POS = [(1, 4), (1, 3), (1, 2), (1, 1)]
 
-    def __init__(self, number):
-        self.number = number
+    def __init__(self):
         self.all_directions = [self.LEFT, self.RIGHT, self.UP, self.DOWN]
         self.dir_names = ['left', 'right', 'up', 'down']
         self.dir2names = dict(zip(self.all_directions, self.dir_names))
@@ -107,6 +106,7 @@ class Game:
         self.number = number
         self.state_number = self.number + 2
         self.boundry = (1, self.number + 1)
+        self.shape = (self.state_number, self.state_number)
         self.grid = set(itertools.product(range(*self.boundry), range(*self.boundry)))
         self.value = {
             'head': 1,
@@ -116,10 +116,9 @@ class Game:
             'earth': 0
         }
 
-        self._state = np.zeros((self.state_number, self.state_number))
-        self.snake = Snake(number=self.number)
+        self._state = np.zeros(self.shape)
+        self.snake = Snake()
         self.food = Food()
-
         self.reset()
 
         self.score = 0
@@ -131,8 +130,6 @@ class Game:
     @property
     def actions(self):
         return self.snake.available_directions
-
-    def control(self): pass
 
     @property
     def state(self):
@@ -149,8 +146,13 @@ class Game:
         return self.snake.eat(self.food.pos)
 
     @property
-    def info(self):
+    def size(self):
         return self.state_number, self.snake.dirnumber
+
+    @property
+    def info(self):
+        info = 'Map shape: {} -\nScore: {}'.format(self.shape, self.score)
+        return info
 
     @property
     def death(self):
@@ -162,9 +164,17 @@ class Game:
             return True
         return False
 
-    def interact(self, action_index):
-        self.snake.turn(action_index)
+    @property
+    def done(self):
+        return self.death
+
+    def step(self, action):
+        self.snake.turn(action)
         self.snake.move()
+        return self.state, self.reward, self.done, self.info
+
+    def render(self, window):
+        window.draw(self.state)
 
     def reset(self):
         self.snake.reset()
@@ -177,17 +187,17 @@ class Game:
         self.food.replenish(self.allowed)
 
     @property
-    def instant_reward(self):
+    def reward(self):
         if self.eat:
-            return 10
+            return 1
         elif self.death:
-            return -10
+            return -0.5
         else:
-            return 0
+            return -0.005
 
     def play(self, engine=None):
         if engine:
-            engine.draw(self.state)
+            self.render(engine)
         while True:
             if engine:
                 action_index = engine.action
@@ -195,14 +205,16 @@ class Game:
                     return
             else:
                 action_index = self.snake.direction
-            self.snake.turn(action_index)
-            self.snake.move()
+            self.step(action_index)
             if self.eat:
                 self.new_food()
             if engine:
-                engine.draw(self.state)
+                self.render(engine)
             if self.death:
                 return
+
+    def close(self, window):
+        window.close()
 
 
 if __name__ == '__main__':
