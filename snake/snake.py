@@ -214,7 +214,10 @@ class Game:
                 return
 
     def close(self, window):
-        window.close()
+        try:
+            window.close()
+        except AttributeError:
+            del window
 
 
 if __name__ == '__main__':

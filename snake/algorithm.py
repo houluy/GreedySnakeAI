@@ -28,9 +28,9 @@ class QApproximation:
         # Below is the output mask that only the chosen neural (action) will output Q.
         self.opt_mask = tf.placeholder(tf.float32, shape=(self.opt_size, None))
         self.reg_lambda = 0.03
-        self.alpha = 0.03
+        self.alpha = 0.3
 
-        c_strides = (1, 1, 1, 1)
+        c_strides = (1, 2, 2, 1)
         p_strides = (1, 2, 2, 1)
         k_size = (1, 3, 3, 1)
         stddev = 5e-2
@@ -49,12 +49,12 @@ class QApproximation:
                     stddev=stddev,
                     bias=biases
                 ),
-                self.PoolLayers(
-                    name=name,
-                    layer=2,
-                    ksize=k_size,
-                    strides=p_strides,
-                ),
+                # self.PoolLayers(
+                #     name=name,
+                #     layer=2,
+                #     ksize=k_size,
+                #     strides=p_strides,
+                # ),
                 self.ConvLayers(
                     name=name,
                     layer=3,
@@ -65,38 +65,54 @@ class QApproximation:
                     stddev=stddev,
                     bias=biases
                 ),
-                self.PoolLayers(
-                    name=name,
-                    layer=4,
-                    ksize=k_size,
-                    strides=p_strides,
-                ),
-                self.FCLayers(
+                # self.PoolLayers(
+                #     name=name,
+                #     layer=4,
+                #     ksize=k_size,
+                #     strides=p_strides,
+                # ),
+                self.ConvLayers(
                     name=name,
                     layer=5,
-                    shape=128,
+                    kernel=(1, 1),
+                    strides=c_strides,
+                    number=128,
+                    channels=32,
                     stddev=stddev,
                     bias=biases,
-                    regularizer=True,
-                    regularizer_weight=self.reg_lambda,
-                    activation=tf.nn.relu,
                 ),
-                self.FCLayers(
+                self.ConvLayers(
                     name=name,
                     layer=6,
-                    shape=self.opt_size,
+                    kernel=(1, 1),
+                    strides=c_strides,
+                    number=self.opt_size,
+                    channels=128,
                     stddev=stddev,
                     bias=biases,
-                    regularizer=None,
-                    regularizer_weight=self.reg_lambda,
-                    activation=None,
                 )
+                # self.FCLayers(
+                #     name=name,
+                #     layer=5,
+                #     shape=128,
+                #     stddev=stddev,
+                #     bias=biases,
+                #     regularizer=True,
+                #     regularizer_weight=self.reg_lambda,
+                #     activation=tf.nn.relu,
+                # ),
+                # self.FCLayers(
+                #     name=name,
+                #     layer=6,
+                #     shape=self.opt_size,
+                #     stddev=stddev,
+                #     bias=biases,
+                #     regularizer=None,
+                #     regularizer_weight=self.reg_lambda,
+                #     activation=None,
+                # )
             ], name=name)
         self._action = 0
-        self.global_step = tf.Variable(0, trainable=False)
-        self.epsilon_decay = 0.1
-        #self.epsilon = tf.train.ExponentialMovingAverage(self.moving_average_decay, self.global_step)
-        self.epsilon = tf.train.exponential_decay(0.9, self.global_step, 100, self.epsilon_decay, staircase=True)
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
         self.saver = tf.train.Saver()
 
@@ -147,6 +163,7 @@ class QApproximation:
         for layer in structure:
             current = self._build_layer(current, layer)
         if name == 'Q':
+            current = tf.layers.Flatten()(current)
             return tf.matmul(current, self.opt_mask)
         else:
             return current
@@ -179,10 +196,21 @@ class DQN:
         self.game = game
         self.ipt_size, self.opt_size = self.game.size
         self.q_network = QApproximation(self.ipt_size, self.opt_size, batch_size=128)
+        self.global_step = tf.Variable(0, trainable=False)
+        self.epsilon_decay = 0.9
+        self.epsilon_base = 0.9
+        self.epsilon_span = 100
+        self._epsilon = tf.train.exponential_decay(
+            self.epsilon_base,
+            self.global_step,
+            self.epsilon_span,
+            self.epsilon_decay,
+            staircase=True
+        )
         self.actions = list(range(self.opt_size))
         self.experience_size = 0
         self.experience_pool = []
-        self.episodes = 150
+        self.episodes = 2000
         self.minibatch_size = 128
         self.target_update_episode = 10
         self.save_episode = 100
@@ -190,7 +218,6 @@ class DQN:
         self.sess.run(tf.global_variables_initializer())
         self.model_file = '../models/model.ckpt'
         self.hyper_params = {
-            'epsilon': 0.8,
             'gamma': 0.9,
         }
 
@@ -210,8 +237,9 @@ class DQN:
     #         if reward == -10:
     #             game.reset()
 
-    def experience_replay(self):
-        pass
+    @property
+    def epsilon(self):
+        return self.sess.run(self._epsilon)
 
     def _convert(self, minibatch):
         'Convert minibatch from namedtuple to multi-dimensional matrix'
@@ -243,8 +271,8 @@ class DQN:
         except tf.errors.DataLossError:
             print('FATAL ERROR, start new game')
         self.game.reset()
-        plt.figure('Loss')
-        plt.ion()
+        # plt.figure('Loss')
+        # plt.ion()
         episodes = []
         lossarr = []
         lossave = []
@@ -271,6 +299,7 @@ class DQN:
                         choices = np.random.choice(list(range(self.experience_size)), self.minibatch_size)
                         minibatch = [self.experience_pool[_] for _ in choices]
                         episodes.append(episode)
+                        self.sess.run(tf.assign(self.global_step, episode))
                         batch = self._convert(minibatch)
                         _, loss = self.sess.run(
                             [self.optimizer, self.q_network.loss],
@@ -282,7 +311,7 @@ class DQN:
                         )
                         lossarr.append(loss)
                         lossave.append(sum(lossarr)/(episode + 1))
-                        self.show(episodes, lossarr, lossave)
+                        #self.show(episodes, lossarr, lossave)
                         if episode % self.target_update_episode == 0:
                             self.q_network._copy_model(self.sess)
                         if episode % self.save_episode == 0:
@@ -290,9 +319,9 @@ class DQN:
                     self.game.reset()
                     break
                 self.experience_size += 1
-        plt.ioff()
-        plt.show()
-        del window
+        # plt.ioff()
+        # plt.show()
+        self.game.close(window)
 
     def show(self, episodes, lossarr, lossave):
         plt.cla()
