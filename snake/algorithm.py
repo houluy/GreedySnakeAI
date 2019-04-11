@@ -1,6 +1,7 @@
 import tensorflow as tf
-from collections import namedtuple
+from collections import namedtuple, deque
 import numpy as np
+import random
 import matplotlib.pyplot as plt
 
 
@@ -24,9 +25,10 @@ class QApproximation:
         self.opt_size = out_size
         self.ipt = tf.placeholder(tf.float32, shape=(None, *self.ipt_shape, self.ipt_channel))
         self.reward = tf.placeholder(tf.float32, shape=(None, 1))
+        self.mask = tf.placeholder(tf.float32, shape=(self.opt_size, None))
 
         # Below is the output mask that only the chosen neural (action) will output Q.
-        self.opt_mask = tf.placeholder(tf.float32, shape=(self.opt_size, None))
+        # self.opt_mask = tf.placeholder(tf.float32, shape=(self.opt_size, None))
         self.reg_lambda = 0.03
         self.alpha = 0.3
 
@@ -57,7 +59,7 @@ class QApproximation:
                 # ),
                 self.ConvLayers(
                     name=name,
-                    layer=3,
+                    layer=2,
                     kernel=(3, 3),
                     strides=c_strides,
                     number=32,
@@ -71,26 +73,26 @@ class QApproximation:
                 #     ksize=k_size,
                 #     strides=p_strides,
                 # ),
-                self.ConvLayers(
-                    name=name,
-                    layer=5,
-                    kernel=(1, 1),
-                    strides=c_strides,
-                    number=128,
-                    channels=32,
-                    stddev=stddev,
-                    bias=biases,
-                ),
-                self.ConvLayers(
-                    name=name,
-                    layer=6,
-                    kernel=(1, 1),
-                    strides=c_strides,
-                    number=self.opt_size,
-                    channels=128,
-                    stddev=stddev,
-                    bias=biases,
-                )
+                # self.ConvLayers(
+                #     name=name,
+                #     layer=5,
+                #     kernel=(1, 1),
+                #     strides=c_strides,
+                #     number=128,
+                #     channels=32,
+                #     stddev=stddev,
+                #     bias=biases,
+                # ),
+                # self.ConvLayers(
+                #     name=name,
+                #     layer=6,
+                #     kernel=(1, 1),
+                #     strides=c_strides,
+                #     number=self.opt_size,
+                #     channels=128,
+                #     stddev=stddev,
+                #     bias=biases,
+                # )
                 # self.FCLayers(
                 #     name=name,
                 #     layer=5,
@@ -101,16 +103,16 @@ class QApproximation:
                 #     regularizer_weight=self.reg_lambda,
                 #     activation=tf.nn.relu,
                 # ),
-                # self.FCLayers(
-                #     name=name,
-                #     layer=6,
-                #     shape=self.opt_size,
-                #     stddev=stddev,
-                #     bias=biases,
-                #     regularizer=None,
-                #     regularizer_weight=self.reg_lambda,
-                #     activation=None,
-                # )
+                self.FCLayers(
+                    name=name,
+                    layer=3,
+                    shape=self.opt_size,
+                    stddev=stddev,
+                    bias=biases,
+                    regularizer=None,
+                    regularizer_weight=self.reg_lambda,
+                    activation=None,
+                )
             ], name=name)
         self._action = 0
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
@@ -128,6 +130,7 @@ class QApproximation:
         return weights, biases
 
     def _build_layer(self, ipt_layer, opt_layer):
+        clayer = ipt_layer
         with tf.variable_scope(opt_layer.name, reuse=tf.AUTO_REUSE):
             if isinstance(opt_layer, self.ConvLayers):
                 weight_shape = [*opt_layer.kernel, opt_layer.channels, opt_layer.number]
@@ -138,13 +141,13 @@ class QApproximation:
                     stddev=opt_layer.stddev,
                     bias=opt_layer.bias,
                 )
-                clayer = tf.nn.conv2d(ipt_layer, weights, strides=opt_layer.strides, padding='SAME')
+                clayer = tf.nn.conv2d(clayer, weights, strides=opt_layer.strides, padding='SAME')
                 clayer = tf.nn.relu(tf.nn.bias_add(clayer, biases))
             elif isinstance(opt_layer, self.PoolLayers):
-                clayer = tf.nn.max_pool(ipt_layer, ksize=opt_layer.ksize, strides=opt_layer.strides, padding='SAME')
+                clayer = tf.nn.max_pool(clayer, ksize=opt_layer.ksize, strides=opt_layer.strides, padding='SAME')
             elif isinstance(opt_layer, self.FCLayers):
-                ipt_layer = tf.layers.Flatten()(ipt_layer)
-                ipt_size = ipt_layer.get_shape()[-1]
+                clayer = tf.layers.Flatten()(clayer)
+                ipt_size = clayer.get_shape()[-1]
                 weight_shape = [ipt_size, opt_layer.shape]
                 weights, biases = self.gen_weights(
                     opt_layer.name + str(opt_layer.layer),
@@ -153,7 +156,7 @@ class QApproximation:
                     regularizer=opt_layer.regularizer,
                     wl=opt_layer.regularizer_weight,
                 )
-                clayer = tf.add(tf.matmul(ipt_layer, weights), biases)
+                clayer = tf.add(tf.matmul(clayer, weights), biases)
                 if opt_layer.activation is not None:
                     clayer = opt_layer.activation(clayer)
         return clayer
@@ -164,13 +167,13 @@ class QApproximation:
             current = self._build_layer(current, layer)
         if name == 'Q':
             current = tf.layers.Flatten()(current)
-            return tf.matmul(current, self.opt_mask)
+            return tf.matmul(current, self.mask)
         else:
             return current
 
     @property
     def loss(self):
-        return tf.reduce_mean(tf.square(self.reward - self['Q']))
+        return tf.reduce_mean(tf.square(self.reward - self['Q'])) + sum(tf.get_collection('losses'))
 
     @staticmethod
     def _copy_model(sess):
@@ -199,7 +202,7 @@ class DQN:
         self.global_step = tf.Variable(0, trainable=False)
         self.epsilon_decay = 0.9
         self.epsilon_base = 0.9
-        self.epsilon_span = 100
+        self.epsilon_span = 200
         self._epsilon = tf.train.exponential_decay(
             self.epsilon_base,
             self.global_step,
@@ -208,8 +211,8 @@ class DQN:
             staircase=True
         )
         self.actions = list(range(self.opt_size))
-        self.experience_size = 0
-        self.experience_pool = []
+        self.exp_size = 1000
+        self.experience_pool = deque(maxlen=self.exp_size)
         self.episodes = 2000
         self.minibatch_size = 128
         self.target_update_episode = 10
@@ -270,13 +273,16 @@ class DQN:
             print('New game')
         except tf.errors.DataLossError:
             print('FATAL ERROR, start new game')
+        except tf.errors.NotFoundError:
+            print('New game')
         self.game.reset()
         # plt.figure('Loss')
         # plt.ion()
-        episodes = []
-        lossarr = []
+        self.lossarr = []
         lossave = []
-        for episode in range(self.episodes):
+        self.experience_size = 0
+        episode = 0
+        while episode < self.episodes:
             state = self.game.state
             while True:
                 state = state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
@@ -284,7 +290,7 @@ class DQN:
                 action = self.epsilon_greedy(epsilon, state)
                 next_state, reward, terminal, _ = self.game.step(action)
                 next_state = next_state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
-                if self.game.eat:
+                if reward > 0:
                     self.game.new_food()
                 self.experience_pool.append(self.exp(
                     state=state,
@@ -293,34 +299,32 @@ class DQN:
                     next_state=next_state,
                     terminal=terminal,
                 ))  # Gaining experience pool
-                self.game.render(window)
-                if terminal:
-                    if self.experience_size >= self.minibatch_size:  # Until it satisfy minibatch size
-                        choices = np.random.choice(list(range(self.experience_size)), self.minibatch_size)
-                        minibatch = [self.experience_pool[_] for _ in choices]
-                        episodes.append(episode)
-                        self.sess.run(tf.assign(self.global_step, episode))
-                        batch = self._convert(minibatch)
-                        _, loss = self.sess.run(
-                            [self.optimizer, self.q_network.loss],
-                            feed_dict={
-                                self.ipt: batch['state'],
-                                self.mask: batch['action'],
-                                self.reward: batch['reward'],
-                            }
-                        )
-                        lossarr.append(loss)
-                        lossave.append(sum(lossarr)/(episode + 1))
-                        #self.show(episodes, lossarr, lossave)
-                        if episode % self.target_update_episode == 0:
-                            self.q_network._copy_model(self.sess)
-                        if episode % self.save_episode == 0:
-                            self.q_network.saver.save(self.sess, self.model_file)
-                    self.game.reset()
-                    break
                 self.experience_size += 1
-        # plt.ioff()
-        # plt.show()
+                self.game.render(window)
+                if self.experience_size >= self.minibatch_size:  # Until it satisfy minibatch size
+                    minibatch = random.sample(self.experience_pool, self.minibatch_size)
+                    episode += 1
+                    self.sess.run(tf.assign(self.global_step, episode))
+                    batch = self._convert(minibatch)
+                    _, loss = self.sess.run(
+                        [self.optimizer, self.q_network.loss],
+                        feed_dict={
+                            self.ipt: batch['state'],
+                            self.mask: batch['action'],
+                            self.reward: batch['reward'],
+                        }
+                    )
+                    self.lossarr.append(loss)
+                    #lossave.append(sum(lossarr)/(episode + 1))
+                    #self.show(episodes, lossarr, lossave)
+                    if episode % self.target_update_episode == 0:
+                        self.q_network._copy_model(self.sess)
+                    if episode % self.save_episode == 0:
+                        self.q_network.saver.save(self.sess, self.model_file)
+                if terminal:
+                    break
+            self.game.reset()
+        self.show_loss()
         self.game.close(window)
 
     def show(self, episodes, lossarr, lossave):
@@ -334,15 +338,20 @@ class DQN:
         plt.legend()
         plt.pause(0.01)
 
+    def show_loss(self):
+        plt.figure()
+        plt.plot(self.lossarr, 'm+-', label='Loss')
+        plt.legend()
+        plt.show()
+
     def epsilon_greedy(self, epsilon, state):
         if epsilon < self.epsilon:
             return np.random.choice(self.actions)
         else:
-            return self.sess.run(self.q, feed_dict={self.ipt: [state], self.mask: np.array([1., 1., 1., 1.]).reshape(4, 1)}).argmax()
+            return self.greedy(state)
 
-    @property
-    def action(self):
-        return self._action
+    def greedy(self, state):
+        return self.sess.run(self.q, feed_dict={self.ipt: [state], self.mask: [[1.], [1.], [1.], [1.]]}).argmax()
 
     @property
     def target(self):
@@ -361,12 +370,12 @@ class DQN:
         return self.q_network.reward
 
     @property
-    def mask(self):
-        return self.q_network.opt_mask
-
-    @property
     def optimizer(self):
         return self.q_network.optimizer
+
+    @property
+    def mask(self):
+        return self.q_network.mask
 
     def __getattr__(self, name):
         if name in self.hyper_params:

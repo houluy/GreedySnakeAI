@@ -164,17 +164,15 @@ class Game:
             return True
         return False
 
-    @property
-    def done(self):
-        return self.death
-
     def step(self, action):
         self.snake.turn(action)
         self.snake.move()
-        return self.state, self.reward, self.done, self.info
+        death = self.death
+        return self.state, self.reward(death), death, self.info
 
-    def render(self, window):
-        window.draw(self.state)
+    def render(self, window=None):
+        if window is not None:
+            window.draw(self.state)
 
     def reset(self):
         self.snake.reset()
@@ -186,14 +184,13 @@ class Game:
         self.score += 1
         self.food.replenish(self.allowed)
 
-    @property
-    def reward(self):
+    def reward(self, death):
         if self.eat:
-            return 1
-        elif self.death:
-            return -0.5
+            return 10
+        elif death:
+            return -10
         else:
-            return -0.005
+            return 0
 
     def play(self, engine=None):
         if engine:
