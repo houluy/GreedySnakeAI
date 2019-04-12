@@ -213,7 +213,7 @@ class DQN:
         self.actions = list(range(self.opt_size))
         self.exp_size = 1000
         self.experience_pool = deque(maxlen=self.exp_size)
-        self.episodes = 2000
+        self.episodes = 200
         self.minibatch_size = 128
         self.target_update_episode = 10
         self.save_episode = 100
