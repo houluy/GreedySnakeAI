@@ -102,8 +102,9 @@ class Food:
 
 class Game:
 
-    def __init__(self, number):
+    def __init__(self, number, window=None):
         self.number = number
+        self.window = window
         self.state_number = self.number + 2
         self.boundry = (1, self.number + 1)
         self.shape = (self.state_number, self.state_number)
@@ -138,8 +139,10 @@ class Game:
         for body in self.snake:
             self._state[body[0], body[1]] = self.value['body']
         self._state[self.snake.head[0], self.snake.head[1]] = self.value['head']
-        # return np.array([self._state]).reshape(self.state_number, self.state_number, 1)
         return self._state
+
+    def observation(self):
+        return self.state.reshape((self.number + 2, self.number + 2, 1), order='F')
 
     @property
     def eat(self):
@@ -151,7 +154,7 @@ class Game:
 
     @property
     def info(self):
-        info = 'Map shape: {} -\nScore: {}'.format(self.shape, self.score)
+        info = 'Score: {}'.format(self.score)
         return info
 
     @property
@@ -168,11 +171,13 @@ class Game:
         self.snake.turn(action)
         self.snake.move()
         death = self.death
-        return self.state, self.reward(death), death, self.info
+        if self.eat:
+            self.new_food()
+        return self.observation(), self.reward(death), death, self.info
 
-    def render(self, window=None):
-        if window is not None:
-            window.draw(self.state)
+    def render(self):
+        if self.window is not None:
+            self.window.draw(self.state)
 
     def reset(self):
         self.snake.reset()
@@ -192,37 +197,35 @@ class Game:
         else:
             return 0
 
-    def play(self, engine=None):
-        if engine:
-            self.render(engine)
+    def play(self, policy=None):
+        self.render()
+        state = self.observation()
         while True:
-            if engine:
-                action_index = engine.action
+            if policy is not None:
+                action_index = policy(state)
                 if action_index is False:
                     return
             else:
                 action_index = self.snake.direction
-            self.step(action_index)
-            if self.eat:
-                self.new_food()
-            if engine:
-                self.render(engine)
+            state, reward, terminal, info = self.step(action_index)
+            print(info)
+            self.render()
             if self.death:
                 return
 
-    def close(self, window):
+    def close(self):
         try:
-            window.close()
+            self.window.close()
         except AttributeError:
-            del window
+            del self.window
 
 
 if __name__ == '__main__':
     base_size = 20
     expansion = 1.5
     number = 10
-    g = Game(number=number)
     from window import Window
     window = Window(number=number, block_size=base_size, expansion=expansion, speed=0.1)
-    g.play(engine=window)
+    g = Game(number=number, window=window)
+    g.play()
     sys.exit(0)

@@ -2,6 +2,7 @@ import tensorflow as tf
 from collections import namedtuple, deque
 import numpy as np
 import random
+import pathlib
 import matplotlib.pyplot as plt
 
 
@@ -219,10 +220,20 @@ class DQN:
         self.save_episode = 100
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
-        self.model_file = '../models/model.ckpt'
+        self.model_file = pathlib.Path.cwd() / pathlib.Path('models/model.ckpt')
         self.hyper_params = {
             'gamma': 0.9,
         }
+        try:
+            self.q_network.saver.restore(self.sess, str(self.model_file))
+        except ValueError:
+            print('First-time train')
+        except tf.errors.InvalidArgumentError:
+            print('New game')
+        except tf.errors.DataLossError:
+            print('FATAL ERROR, start new game')
+        except tf.errors.NotFoundError:
+            print('New game')
 
     # def gain_experiences(self, game):
     #     for _ in range(self.experience_size):
@@ -265,16 +276,6 @@ class DQN:
         return batch
 
     def train(self, window=None):
-        try:
-            self.q_network.saver.restore(self.sess, self.model_file)
-        except ValueError:
-            print('First-time train')
-        except tf.errors.InvalidArgumentError:
-            print('New game')
-        except tf.errors.DataLossError:
-            print('FATAL ERROR, start new game')
-        except tf.errors.NotFoundError:
-            print('New game')
         self.game.reset()
         # plt.figure('Loss')
         # plt.ion()
@@ -326,6 +327,9 @@ class DQN:
             self.game.reset()
         self.show_loss()
         self.game.close(window)
+
+    def __call__(self, state):
+        return self.greedy(state)
 
     def show(self, episodes, lossarr, lossave):
         plt.cla()
